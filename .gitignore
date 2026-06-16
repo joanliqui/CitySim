@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.local
+
+# IDE local settings
+.idea/
+
+# Local logs
+*.log
