@@ -1,7 +1,7 @@
 import { Rng } from '../../../../core/Rng';
 import type { Furniture } from '../types';
 import type { FurnishContext, FurnitureFactory } from './FurnitureFactory';
-import { footRect, isFree, type Rect } from './placement';
+import { footRect, FURNITURE_SCALE, isFree, type Rect } from './placement';
 
 /**
  * Mesa de comedor: pieza central de la estancia. Se coloca lo más centrada
@@ -20,8 +20,8 @@ export class DiningTableFactory implements FurnitureFactory {
 
     // Reserva para sillas: una franja a cada lado largo y holgura en los extremos.
     const CHAIR_CLR = 0.55;
-    const L = clamp(longU - 1.2, 1.0, 1.9); // largo de la mesa
-    const D = clamp(crossU - 2 * CHAIR_CLR, 0.75, 1.05); // fondo de la mesa
+    const L = clamp(longU - 1.2, 1.0, 1.9 * FURNITURE_SCALE); // largo de la mesa
+    const D = clamp(crossU - 2 * CHAIR_CLR, 0.75, 1.05 * FURNITURE_SCALE); // fondo de la mesa
     if (L < 1.0 - 1e-6 || D < 0.75 - 1e-6) return []; // no cabe mesa + sillas
 
     const w = longAlongX ? L : D;

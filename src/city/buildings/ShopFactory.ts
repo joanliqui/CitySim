@@ -10,7 +10,7 @@ export class ShopFactory extends BuildingFactory {
   readonly courtyardKind: CourtyardKind = 'asphalt';
 
   protected footprint(rng: Rng, _spec: DistrictSpec): Footprint {
-    return { front: rng.range(8.5, 12), depth: rng.range(7, 10), h: rng.range(4.2, 6.5) };
+    return { front: rng.range(10.5, 14.5), depth: rng.range(9, 12), h: rng.range(4.6, 7) };
   }
 
   protected fillFactors(): { front: number; depth: number } {

@@ -10,15 +10,21 @@ import {
   SKIN_COLORS,
   type CharacterAppearance,
 } from '../render/CharacterFactory';
+import { BIG_FIVE, DEFAULT_PERSONALITY, type Personality } from '../sim/personality';
+import { PersonalityRadar } from './PersonalityRadar';
 
 /**
- * Popup de creación de personaje: vista previa 3D (turntable con renderer
- * propio) y panel de personalización (peinado, colores, altura). Al confirmar
- * entrega el aspecto elegido y se cierra.
+ * Popup de creación de personaje: organizado en pestañas (Apariencia /
+ * Personalidad). La pestaña de apariencia tiene la vista previa 3D (turntable
+ * con renderer propio) y la personalización (peinado, colores, altura). La de
+ * personalidad tiene sliders de los Cinco Grandes y un radar que se actualiza
+ * en vivo. Al confirmar entrega aspecto + personalidad y se cierra.
  */
 export class CharacterCreator {
   private readonly overlay: HTMLDivElement;
   private appearance: CharacterAppearance = { ...DEFAULT_APPEARANCE };
+  private personality: Personality = { ...DEFAULT_PERSONALITY };
+  private radar!: PersonalityRadar;
 
   /* Escena de la vista previa. */
   private readonly renderer: THREE.WebGLRenderer;
@@ -29,7 +35,10 @@ export class CharacterCreator {
   private rafId = 0;
   private lastT = 0;
 
-  constructor(parent: HTMLElement, private readonly onCreate: (appearance: CharacterAppearance) => void) {
+  constructor(
+    parent: HTMLElement,
+    private readonly onCreate: (appearance: CharacterAppearance, personality: Personality) => void,
+  ) {
     this.overlay = document.createElement('div');
     this.overlay.className = 'creator-overlay hidden';
     this.overlay.innerHTML = `
@@ -38,7 +47,11 @@ export class CharacterCreator {
           <span>👤 Crear personaje</span>
           <button class="btn mini creator-close" title="Cerrar">✕</button>
         </div>
-        <div class="creator-body">
+        <div class="creator-tabs">
+          <button class="btn mini creator-tab active" data-tab="apariencia">Apariencia</button>
+          <button class="btn mini creator-tab" data-tab="personalidad">Personalidad</button>
+        </div>
+        <div class="creator-body" data-panel="apariencia">
           <div class="creator-controls">
             <div class="creator-section">Peinado</div>
             <div class="creator-grid hair-styles"></div>
@@ -55,6 +68,10 @@ export class CharacterCreator {
           </div>
           <canvas class="creator-canvas" width="300" height="380"></canvas>
         </div>
+        <div class="creator-body hidden" data-panel="personalidad">
+          <div class="creator-controls personality-sliders"></div>
+          <div class="personality-chart"></div>
+        </div>
         <div class="creator-footer">
           <button class="btn creator-cancel">Cancelar</button>
           <button class="btn creator-confirm">✔ Crear personaje</button>
@@ -62,6 +79,40 @@ export class CharacterCreator {
       </div>
     `;
     parent.appendChild(this.overlay);
+
+    /* ── Pestañas ── */
+    const tabs = this.overlay.querySelectorAll<HTMLButtonElement>('.creator-tab');
+    const panels = this.overlay.querySelectorAll<HTMLDivElement>('.creator-body');
+    for (const tab of tabs) {
+      tab.addEventListener('click', () => {
+        for (const t of tabs) t.classList.toggle('active', t === tab);
+        for (const p of panels) p.classList.toggle('hidden', p.dataset.panel !== tab.dataset.tab);
+      });
+    }
+
+    /* ── Personalidad: sliders + radar ── */
+    const sliderBox = this.overlay.querySelector<HTMLDivElement>('.personality-sliders')!;
+    for (const trait of BIG_FIVE) {
+      const row = document.createElement('div');
+      row.className = 'personality-row';
+      row.innerHTML = `
+        <div class="personality-label" title="${trait.desc}">
+          <span>${trait.label}</span><span class="personality-value">${this.personality[trait.id]}</span>
+        </div>
+        <input class="personality-slider" type="range" min="0" max="100" step="1" value="${this.personality[trait.id]}" />
+      `;
+      const slider = row.querySelector<HTMLInputElement>('.personality-slider')!;
+      const value = row.querySelector<HTMLSpanElement>('.personality-value')!;
+      slider.addEventListener('input', () => {
+        const v = parseInt(slider.value, 10);
+        this.personality[trait.id] = v;
+        value.textContent = String(v);
+        this.radar.update(this.personality);
+      });
+      sliderBox.appendChild(row);
+    }
+    this.radar = new PersonalityRadar(this.overlay.querySelector<HTMLDivElement>('.personality-chart')!);
+    this.radar.update(this.personality);
 
     /* ── Controles ── */
     const styleBox = this.overlay.querySelector<HTMLDivElement>('.hair-styles')!;
@@ -92,7 +143,7 @@ export class CharacterCreator {
     this.overlay.querySelector('.creator-close')!.addEventListener('click', () => this.close());
     this.overlay.querySelector('.creator-cancel')!.addEventListener('click', () => this.close());
     this.overlay.querySelector('.creator-confirm')!.addEventListener('click', () => {
-      this.onCreate({ ...this.appearance });
+      this.onCreate({ ...this.appearance }, { ...this.personality });
       this.close();
     });
     this.overlay.addEventListener('pointerdown', (e) => {

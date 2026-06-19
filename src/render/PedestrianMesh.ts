@@ -4,6 +4,12 @@ import type { Pedestrian } from '../sim/agents';
 
 const SHIRT_COLORS = [0xd6584f, 0x4f7fd6, 0x57b06a, 0xe0b73d, 0x9a5fc2, 0xd87fa8, 0x5fc2b8, 0x8a8f99];
 const PICK_BOUNDS_RADIUS = 10000;
+/**
+ * Factor de altura del peatón: un poco más bajitos para que quepan holgadamente
+ * bajo las puertas (que ahora son más altas). Lo comparten ambos renders de
+ * peatón (estándar y personalizado) para que mantengan la misma estatura.
+ */
+export const PED_SCALE = 0.88;
 const HAND_X = 0.42;
 const HAND_Y = 0.7;
 const HAND_Z = 0.04;
@@ -77,8 +83,9 @@ export class PedestrianMesh {
   update(alpha: number, timeMs: number): void {
     for (let i = 0; i < this.count; i++) {
       const p = this.pedestrians[i];
-      const s = p.prevScale + (p.scale - p.prevScale) * alpha;
-      if (s <= 0.002) {
+      const sRaw = p.prevScale + (p.scale - p.prevScale) * alpha;
+      const s = sRaw * PED_SCALE;
+      if (sRaw <= 0.002) {
         // Oculta la instancia colapsándola.
         this.mat.makeScale(0.0001, 0.0001, 0.0001);
         this.body.setMatrixAt(i, this.mat);
@@ -89,6 +96,8 @@ export class PedestrianMesh {
       }
       const x = p.prevX + (p.x - p.prevX) * alpha;
       const z = p.prevZ + (p.z - p.prevZ) * alpha;
+      // Cota (planta baja = 0; >0 al subir escaleras / vivir en plantas altas).
+      const base = 0.12 + p.prevY + (p.y - p.prevY) * alpha;
       const heading = lerpAngle(p.prevHeading, p.heading, alpha);
       const walking = p.state === 'walking' || p.state === 'crossing' || p.state === 'exiting' || p.state === 'entering';
       const phase = timeMs * WALK_ANIM_SPEED + i * 1.7;
@@ -97,9 +106,9 @@ export class PedestrianMesh {
       const handSwing = walking ? step * HAND_SWING_Z : 0;
 
       this.quat.setFromEuler(this.euler.set(0, heading, 0));
-      this.mat.compose(this.pos.set(x, 0.12 + bob, z), this.quat, this.scl.set(s, s, s));
+      this.mat.compose(this.pos.set(x, base + bob, z), this.quat, this.scl.set(s, s, s));
       this.body.setMatrixAt(i, this.mat);
-      this.mat.compose(this.pos.set(x, 0.12 + bob + 1.62 * s, z), this.quat, this.scl.set(s, s, s));
+      this.mat.compose(this.pos.set(x, base + bob + 1.62 * s, z), this.quat, this.scl.set(s, s, s));
       this.head.setMatrixAt(i, this.mat);
 
       const sin = Math.sin(heading);
@@ -109,7 +118,7 @@ export class PedestrianMesh {
         const localZ = (HAND_Z + handSwing * side) * s;
         const hx = x + cos * localX + sin * localZ;
         const hz = z - sin * localX + cos * localZ;
-        this.mat.compose(this.pos.set(hx, 0.12 + bob + HAND_Y * s, hz), this.quat, this.scl.set(s, s, s));
+        this.mat.compose(this.pos.set(hx, base + bob + HAND_Y * s, hz), this.quat, this.scl.set(s, s, s));
         this.hands.setMatrixAt(i * 2 + (side < 0 ? 0 : 1), this.mat);
       }
     }

@@ -19,7 +19,10 @@ import { makeHouseInterior, WALL_T } from './houseInterior';
  * `makeHouseInterior` (con un `seedOffset` por planta para que varíen).
  */
 
-const FLOOR_H = 3; // altura de planta (alineada con la cadencia de ventanas del render)
+/** Altura de planta de un edificio residencial. La fija aquí y la consume tanto
+ *  el render (apila plantas y sitúa ventanas/puertas) como `OfficeFactory` (que
+ *  cuantiza la altura total a un nº entero de plantas con este mismo valor). */
+export const FLOOR_H = 3.4;
 
 /**
  * @param x,z  centro de la huella del edificio

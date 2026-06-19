@@ -1,7 +1,7 @@
 import { Rng } from '../../core/Rng';
 import type { OfficeInterior } from '../CityModel';
 import { BuildingFactory, type CourtyardKind, type DistrictSpec, type Footprint } from './BuildingFactory';
-import { makeOfficeInterior } from './interior/officeInterior';
+import { FLOOR_H, makeOfficeInterior } from './interior/officeInterior';
 import type { OfficeType } from './types/BuildingTypes';
 
 /** Edificio alto de oficinas (la altura sale del rango `tall` del distrito). */
@@ -13,14 +13,14 @@ export class OfficeFactory extends BuildingFactory {
 
   protected footprint(rng: Rng, spec: DistrictSpec): Footprint {
     // Huella mayor que antes: cada planta debe alojar el rellano + una vivienda.
-    // La altura se cuantiza a un nº entero de plantas (FLOOR_H = 3) para que el
+    // La altura se cuantiza a un nº entero de plantas (FLOOR_H) para que el
     // interior multiplanta encaje exactamente. Se mantienen 3 extracciones del
     // RNG en orden (front, depth, h).
-    const front = rng.range(11, 14);
-    const depth = rng.range(10, 14);
+    const front = rng.range(12.5, 15.5);
+    const depth = rng.range(11, 15);
     const rawH = rng.range(spec.tall[0], spec.tall[1]);
-    const floors = Math.max(2, Math.round(rawH / 3));
-    return { front, depth, h: floors * 3 };
+    const floors = Math.max(2, Math.round(rawH / FLOOR_H));
+    return { front, depth, h: floors * FLOOR_H };
   }
 
   protected fillFactors(): { front: number; depth: number } {

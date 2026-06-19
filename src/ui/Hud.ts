@@ -1,10 +1,35 @@
 import type { SimStats } from '../sim/Simulation';
 
+export interface AgentStat {
+  label: string;
+  /** Valor 0–100. */
+  value: number;
+}
+
+export interface AgentAction {
+  /** Identificador que se devuelve al pulsar (lo enruta App). */
+  id: string;
+  label: string;
+}
+
+export interface AgentDetail {
+  label: string;
+  value: string;
+  /** Si true, el valor se renderiza como enlace y llama a onFocusHome al pulsar. */
+  focusHome?: boolean;
+}
+
 export interface AgentInfo {
   icon: string;
   title: string;
   status: string;
   detail: string;
+  /** Datos textuales (p. ej. hogar) que se muestran en el panel de información. */
+  details?: AgentDetail[];
+  /** Stats opcionales (p. ej. personalidad del peatón); habilitan el botón. */
+  stats?: AgentStat[];
+  /** Acciones contextuales (p. ej. "Ir a casa"); habilitan el botón Actions. */
+  actions?: AgentAction[];
 }
 
 export interface SimSettings {
@@ -27,6 +52,10 @@ export interface HudCallbacks {
   onRegenerate: (seed: number, vehicles: number, pedestrians: number) => void;
   /** Abre el creador de personajes. */
   onCreateCharacter: () => void;
+  /** Ejecuta una acción contextual del agente seleccionado (por id). */
+  onAgentAction: (id: string) => void;
+  /** Sitúa la cámara mirando al edificio del hogar del peatón seleccionado. */
+  onFocusHome: () => void;
 }
 
 /** Panel de control (DOM plano): pausa, velocidad, ajustes, estadísticas y ficha del agente. */
@@ -37,10 +66,18 @@ export class Hud {
   private readonly speedLabel: HTMLSpanElement;
   private readonly statsEl: HTMLDivElement;
   private readonly fpsEl: HTMLSpanElement;
-  private readonly agentCard: HTMLDivElement;
+  private readonly agentDock: HTMLDivElement;
   private readonly agentTitle: HTMLDivElement;
   private readonly agentStatus: HTMLDivElement;
   private readonly agentDetail: HTMLDivElement;
+  private readonly statsToggle: HTMLButtonElement;
+  private readonly agentStats: HTMLDivElement;
+  private statsVisible = false;
+  private readonly actionsToggle: HTMLButtonElement;
+  private readonly agentActionsPanel: HTMLDivElement;
+  private readonly agentActions: HTMLDivElement;
+  private actionsVisible = false;
+  private actionsKey = '';
   private readonly settingsEl: HTMLDivElement;
   private readonly hourSlider: HTMLInputElement;
   private readonly hourLabel: HTMLSpanElement;
@@ -98,11 +135,20 @@ export class Hud {
         </div>
         <div class="stats"></div>
       </div>
-      <div class="panel agent-card hidden">
-        <div class="agent-title"></div>
-        <div class="agent-status"></div>
-        <div class="agent-detail"></div>
-        <button class="btn release">Dejar de seguir</button>
+      <div class="agent-dock hidden">
+        <div class="panel agent-card">
+          <div class="agent-title"></div>
+          <div class="agent-status"></div>
+          <div class="agent-detail"></div>
+          <button class="btn stats-toggle hidden">📋 Mostrar información</button>
+          <div class="agent-stats hidden"></div>
+          <button class="btn actions-toggle hidden">⚡ Actions</button>
+          <button class="btn release">Dejar de seguir</button>
+        </div>
+        <div class="panel agent-actions-panel hidden">
+          <div class="agent-actions-title">Acciones</div>
+          <div class="agent-actions"></div>
+        </div>
       </div>
       <div class="hint">Clic en un coche o peatón para seguirlo · ESC para soltar</div>
     `;
@@ -113,10 +159,15 @@ export class Hud {
     this.speedLabel = root.querySelector('.speed-label')!;
     this.statsEl = root.querySelector('.stats')!;
     this.fpsEl = root.querySelector('.fps')!;
-    this.agentCard = root.querySelector('.agent-card')!;
+    this.agentDock = root.querySelector('.agent-dock')!;
     this.agentTitle = root.querySelector('.agent-title')!;
     this.agentStatus = root.querySelector('.agent-status')!;
     this.agentDetail = root.querySelector('.agent-detail')!;
+    this.statsToggle = root.querySelector('.stats-toggle')!;
+    this.agentStats = root.querySelector('.agent-stats')!;
+    this.actionsToggle = root.querySelector('.actions-toggle')!;
+    this.agentActionsPanel = root.querySelector('.agent-actions-panel')!;
+    this.agentActions = root.querySelector('.agent-actions')!;
     this.settingsEl = root.querySelector('.settings')!;
     this.hourSlider = root.querySelector('.hour')!;
     this.hourLabel = root.querySelector('.hour-label')!;
@@ -130,6 +181,23 @@ export class Hud {
       callbacks.onSpeed(v);
     });
     root.querySelector('.release')!.addEventListener('click', () => callbacks.onRelease());
+    this.statsToggle.addEventListener('click', () => {
+      this.statsVisible = !this.statsVisible;
+      this.applyStatsVisibility();
+    });
+    this.actionsToggle.addEventListener('click', () => {
+      this.actionsVisible = !this.actionsVisible;
+      this.applyActionsVisibility();
+    });
+    // Delegación: cada acción lleva su id en data-action.
+    this.agentActions.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.agent-action');
+      if (btn) callbacks.onAgentAction(btn.dataset.action!);
+    });
+    // Delegación: enlace al edificio del hogar.
+    this.agentStats.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('.agent-home-link')) callbacks.onFocusHome();
+    });
     root.querySelector('.create-character')!.addEventListener('click', () => callbacks.onCreateCharacter());
 
     /* ── Ajustes ── */
@@ -208,13 +276,69 @@ export class Hud {
 
   showAgent(info: AgentInfo | null): void {
     if (!info) {
-      this.agentCard.classList.add('hidden');
+      this.agentDock.classList.add('hidden');
       return;
     }
-    this.agentCard.classList.remove('hidden');
+    this.agentDock.classList.remove('hidden');
     this.agentTitle.textContent = `${info.icon} ${info.title}`;
     this.agentStatus.textContent = info.status;
     this.agentDetail.textContent = info.detail;
+
+    const hasInfo = (info.details && info.details.length) || (info.stats && info.stats.length);
+    if (hasInfo) {
+      this.statsToggle.classList.remove('hidden');
+      const rows = (info.details ?? [])
+        .map((d) =>
+          d.focusHome
+            ? `<div class="agent-info-row"><span>${d.label}</span><button class="agent-home-link">${d.value}</button></div>`
+            : `<div class="agent-info-row"><span>${d.label}</span><span>${d.value}</span></div>`,
+        )
+        .join('');
+      const bars = (info.stats ?? [])
+        .map(
+          (s) => `
+            <div class="agent-stat">
+              <div class="agent-stat-head"><span>${s.label}</span><span>${Math.round(s.value)}</span></div>
+              <div class="agent-stat-bar"><div class="agent-stat-fill" style="width:${Math.max(0, Math.min(100, s.value))}%"></div></div>
+            </div>`,
+        )
+        .join('');
+      this.agentStats.innerHTML = (rows ? `<div class="agent-info-rows">${rows}</div>` : '') + bars;
+    } else {
+      // Sin información (p. ej. vehículos): oculta botón y panel.
+      this.statsToggle.classList.add('hidden');
+      this.statsVisible = false;
+      this.agentStats.innerHTML = '';
+    }
+    this.applyStatsVisibility();
+
+    if (info.actions && info.actions.length) {
+      this.actionsToggle.classList.remove('hidden');
+      // Reconstruye los botones solo si cambió el conjunto de acciones.
+      const key = info.actions.map((a) => a.id).join('|');
+      if (key !== this.actionsKey) {
+        this.actionsKey = key;
+        this.agentActions.innerHTML = info.actions
+          .map((a) => `<button class="btn agent-action" data-action="${a.id}">${a.label}</button>`)
+          .join('');
+      }
+    } else {
+      this.actionsToggle.classList.add('hidden');
+      this.actionsVisible = false;
+      this.agentActions.innerHTML = '';
+      this.actionsKey = '';
+    }
+    this.applyActionsVisibility();
+  }
+
+  private applyStatsVisibility(): void {
+    this.agentStats.classList.toggle('hidden', !this.statsVisible);
+    this.statsToggle.textContent = this.statsVisible ? '📋 Ocultar información' : '📋 Mostrar información';
+  }
+
+  private applyActionsVisibility(): void {
+    this.agentActionsPanel.classList.toggle('hidden', !this.actionsVisible);
+    this.actionsToggle.textContent = this.actionsVisible ? '⚡ Cerrar acciones' : '⚡ Actions';
   }
 }
 

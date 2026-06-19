@@ -174,6 +174,14 @@ export interface Building {
   officeInterior?: OfficeInterior;
 }
 
+/**
+ * Nº de apartamentos de un edificio residencial alto (una vivienda por planta,
+ * la planta baja es el rellano). 0 para casas individuales u otros edificios.
+ */
+export function apartmentCount(b: Building): number {
+  return b.officeInterior ? b.officeInterior.dwellings.length : 0;
+}
+
 export type { TreeKind };
 
 export interface Tree {

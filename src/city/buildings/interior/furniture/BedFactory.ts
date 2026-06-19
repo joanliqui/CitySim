@@ -1,7 +1,7 @@
 import { Rng } from '../../../../core/Rng';
 import type { Furniture, RoomRect } from '../types';
 import type { FurnishContext, FurnitureFactory } from './FurnitureFactory';
-import { footRect, overlapArea, type Rect } from './placement';
+import { footRect, FURNITURE_SCALE, overlapArea, type Rect } from './placement';
 
 /**
  * Cama: se arrima a una pared de la estancia que NO quede delante de ninguna
@@ -30,7 +30,7 @@ function placeBed(room: RoomRect, bx: number, bz: number, bw: number, bd: number
   const uw = ux1 - ux0;
   const ud = uz1 - uz0;
 
-  const BED_LEN = 2.0; // largo de colchón + estructura
+  const BED_LEN = 2.0 * FURNITURE_SCALE; // largo de colchón + estructura
 
   // Caras interiores de los muros perimetrales: arrimar el cabecero a un muro
   // exterior cuando se pueda (no llevan puertas interiores).
@@ -49,8 +49,8 @@ function placeBed(room: RoomRect, bx: number, bz: number, bw: number, bd: number
     const cross = longAlongX ? ud : uw;
     if (longUsable < BED_LEN - 0.05) return; // no cabe el largo de la cama
     const longLen = Math.min(BED_LEN, longUsable);
-    const isDouble = cross >= 2.6;
-    const bedW = isDouble ? 1.5 : 0.95;
+    const isDouble = cross >= 2.6 * FURNITURE_SCALE;
+    const bedW = (isDouble ? 1.5 : 0.95) * FURNITURE_SCALE;
     if (bedW > cross - 0.1) return; // ni la individual entra de través
     const fw = longAlongX ? longLen : bedW;
     const fd = longAlongX ? bedW : longLen;

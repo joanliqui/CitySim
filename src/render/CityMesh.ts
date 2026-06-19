@@ -20,6 +20,7 @@ import {
   type Vec2,
 } from '../city/CityModel';
 import { buildingFactories } from '../city/buildings/registry';
+import { officeShaft, stairLayout, type OfficeShaft } from '../city/buildings/interior/stairGeometry';
 import type { BuildingGeom, BuildingRenderCtx, BuildingRenderHelpers, RenderBuckets, RenderFurniture } from './buildings/BuildingRenderer';
 import { buildingRenderers } from './buildings/renderRegistry';
 import type { TreeRenderBuckets, TreeRenderCtx, TreeRenderHelpers } from './vegetation/TreeRenderer';
@@ -39,6 +40,9 @@ const SIGN_COLORS = [0x284b63, 0x7a3b45, 0x326b52, 0x8b5a2b, 0x4d4b82, 0x7a456a]
 const RUG_COLORS = [0xb0573f, 0x4f6f8f, 0x3f7f5f, 0x9a7b3f, 0x7a4f6f];
 const UPHOLSTERY_COLORS = [0x6f7884, 0x4f6478, 0x55705a, 0x9a6b4f, 0xb59448, 0x7a5566, 0x8a8f96];
 const BOOK_COLORS = [0x9a4b3f, 0x3f6f8f, 0x4f8f5f, 0xc7a23f, 0x6a4f8f, 0xb56a3f, 0x4a4a55];
+/** Altura máxima del hueco de puerta (calle e interiores). Holgada sobre la
+ *  estatura del peatón para que pase con margen. */
+const DOOR_TOP_MAX = 2.45;
 const BATH_TOWEL_COLORS = [0xf2efe8, 0x8fb7c9, 0xd8b6a4, 0xb8c8a2, 0xc7c1d9];
 const TREE_GREENS = [0x4e8f4a, 0x5fa052, 0x3f7f45];
 const PALM_GREENS = [0x2f8f3f, 0x3aa14a, 0x2b7436];
@@ -87,7 +91,10 @@ const DOOR_ANIM_SPEED = 5.5;
 
 export class DoorAnimator {
   private readonly current: number[];
-  private readonly target: number[];
+  /** Apertura pedida por el usuario (menú radial), persistente. */
+  private readonly userTarget: number[];
+  /** Apertura pedida por la simulación (peatón cruzando el umbral), por frame. */
+  private readonly autoTarget: boolean[];
   private readonly tmp = new THREE.Matrix4();
 
   constructor(
@@ -95,23 +102,37 @@ export class DoorAnimator {
     private readonly poses: DoorPose[],
   ) {
     this.current = new Array(poses.length).fill(0);
-    this.target = new Array(poses.length).fill(0);
+    this.userTarget = new Array(poses.length).fill(0);
+    this.autoTarget = new Array(poses.length).fill(false);
   }
 
   toggle(index: number): void {
     if (!this.poses[index]) return;
-    this.target[index] = this.target[index] > 0.5 ? 0 : 1;
+    this.userTarget[index] = this.userTarget[index] > 0.5 ? 0 : 1;
   }
 
+  /** La simulación marca si un peatón está cruzando esta puerta (se resetea cada frame). */
+  setAuto(index: number, open: boolean): void {
+    if (this.autoTarget[index] !== undefined) this.autoTarget[index] = open;
+  }
+
+  /** Reinicia las peticiones automáticas antes de recorrer los peatones del frame. */
+  clearAuto(): void {
+    this.autoTarget.fill(false);
+  }
+
+  /** Para la etiqueta del menú: refleja solo el estado que controla el usuario. */
   isOpen(index: number): boolean {
-    return (this.target[index] ?? 0) > 0.5;
+    return (this.userTarget[index] ?? 0) > 0.5;
   }
 
   update(dt: number): void {
     let dirty = false;
     for (let i = 0; i < this.poses.length; i++) {
+      // Abierta si la pide el usuario O un peatón la está cruzando.
+      const target = this.autoTarget[i] || this.userTarget[i] > 0.5 ? 1 : 0;
       const before = this.current[i];
-      const next = before + (this.target[i] - before) * Math.min(1, dt * DOOR_ANIM_SPEED);
+      const next = before + (target - before) * Math.min(1, dt * DOOR_ANIM_SPEED);
       if (Math.abs(next - before) < 0.0005) continue;
       this.current[i] = next;
       this.mesh.setMatrixAt(i, doorMatrix(this.poses[i], easeInOut(next), this.tmp));
@@ -1569,7 +1590,7 @@ function addHouseShell(
   floorMats.push(compose(b.x, b.z, 0.09, b.w - 0.02, 0.18, b.d - 0.02));
 
   const doorHalf = 0.78;
-  const doorTop = Math.min(2.15, b.h - 0.4);
+  const doorTop = Math.min(DOOR_TOP_MAX, b.h - 0.4);
 
   // Bandas verticales de ventana válidas (una por planta), centro + alféizar/dintel.
   const bands: Array<{ yc: number; y0: number; y1: number }> = [];
@@ -2221,7 +2242,7 @@ function addWallBoxes(
   }
   const g0 = Math.max(0, doorAt - doorHalf);
   const g1 = Math.min(len, doorAt + doorHalf);
-  const doorTop = Math.min(2.15, h - 0.4);
+  const doorTop = Math.min(DOOR_TOP_MAX, h - 0.4);
   seg(0, g0, 0, h);
   seg(g1, len, 0, h);
   seg(g0, g1, doorTop, h); // dintel
@@ -2234,8 +2255,6 @@ function addWallBoxes(
  * y los muebles de las casas (con `yBase`).
  */
 type OfficeCore = { x: number; z: number; w: number; d: number; side: boolean; nX: number; nZ: number };
-/** Ojo de escalera: rectángulo + vector unitario fachada→fondo (eje de subida). */
-type OfficeShaft = { x: number; z: number; depth: number; width: number; vX: number; vZ: number };
 
 function addOfficeShell(b: RenderBuilding, K: RenderBuckets): void {
   const oi = b.officeInterior!;
@@ -2278,51 +2297,6 @@ function addOfficeShell(b: RenderBuilding, K: RenderBuckets): void {
   }
 }
 
-/** Ojo de escalera. Núcleo al fondo: rectángulo al fondo dejando rellano por
- *  delante. Núcleo lateral: rectángulo que recorre todo el fondo, dejando un
- *  rellano lateral junto a la puerta de la vivienda. */
-function officeShaft(b: RenderBuilding, core: OfficeCore): OfficeShaft {
-  const faceZ = b.faceZ !== 0;
-  if (!core.side) {
-    const vX = -b.faceX;
-    const vZ = -b.faceZ; // dirección fachada → fondo (eje de subida)
-    const coreDepth = faceZ ? core.d : core.w;
-    const coreWidth = faceZ ? core.w : core.d;
-    // Reservamos un rellano AMPLIO por delante (entre la puerta y el arranque de la
-    // escalera) y un pequeño retranqueo contra el muro del fondo.
-    const FRONT_RELLANO = 2.0;
-    const BACK_INSET = 0.2;
-    const depth = Math.max(2.2, coreDepth - BACK_INSET - FRONT_RELLANO);
-    const width = Math.min(coreWidth - 0.8, Math.max(3.6, coreWidth * 0.6));
-    const halfV = (faceZ ? b.d : b.w) / 2;
-    const backX = b.x + vX * halfV;
-    const backZ = b.z + vZ * halfV;
-    const x = backX - vX * (BACK_INSET + depth / 2);
-    const z = backZ - vZ * (BACK_INSET + depth / 2);
-    return { x, z, depth, width, vX, vZ };
-  }
-  // ── Núcleo LATERAL: la escalera sube a lo largo del FONDO (eje perpendicular a
-  // la fachada). El ojo es COMPACTO (no ocupa todo el fondo: con escalones
-  // realistas un ojo enorme daría peldaños gigantes); se pega al fondo del núcleo
-  // y a su muro exterior, dejando una franja de rellano lateral (lado −normal,
-  // junto a la puerta de la vivienda) y el resto del fondo como suelo/pasillo. ──
-  const vX = -b.faceX;
-  const vZ = -b.faceZ; // eje de subida = profundidad
-  const perpFull = faceZ ? b.d : b.w; // fondo total
-  const coreAlong = faceZ ? core.w : core.d; // ancho del núcleo (a lo largo de fachada)
-  const INSET = 0.2;
-  const SIDE_RELLANO = 1.4; // franja de rellano junto a la puerta de la vivienda
-  const STAIR_DEPTH = 4.8; // fondo del ojo: cabe un ida y vuelta cómodo
-  const depth = Math.max(2.4, Math.min(perpFull - 2 * INSET, STAIR_DEPTH));
-  const width = Math.max(2.2, coreAlong - SIDE_RELLANO - INSET);
-  // Desplazamiento del centro del ojo: hacia el muro exterior (+normal) en el eje
-  // del ancho, y hacia el fondo (+v) en el eje de profundidad.
-  const aOff = coreAlong / 2 - INSET - width / 2;
-  const dOff = perpFull / 2 - INSET - depth / 2;
-  const x = faceZ ? core.x + core.nX * aOff : b.x + vX * dOff;
-  const z = faceZ ? b.z + vZ * dOff : core.z + core.nZ * aOff;
-  return { x, z, depth, width, vX, vZ };
-}
 
 /** Losa horizontal (cx,cz,W,D) menos un hueco rectangular, en hasta 4 piezas. */
 function addSlabWithHole(
@@ -2368,7 +2342,7 @@ function addOfficePerimeter(
   frame: THREE.Matrix4[],
 ): void {
   const doorHalf = 0.78;
-  const doorTop = Math.min(2.15, storeyH - 0.4);
+  const doorTop = Math.min(DOOR_TOP_MAX, storeyH - 0.4);
   const yc = Math.min(1.55, storeyH - 1.0); // centro de la banda de ventana
 
   type W = { nx: number; nz: number; p0x: number; p0z: number; p1x: number; p1z: number; alongX: boolean; len: number; isFacade: boolean };
@@ -2440,7 +2414,7 @@ function addCoreWall(
   numberMats: Map<number, THREE.Matrix4[]>,
 ): void {
   const doorHalf = 0.8;
-  const doorTop = Math.min(2.15, storeyH - 0.4);
+  const doorTop = Math.min(DOOR_TOP_MAX, storeyH - 0.4);
   const DOOR_GAP = 0.015;
   const DOOR_W = doorHalf * 2 - DOOR_GAP * 2;
   const DOOR_H = doorTop - DOOR_GAP * 2;
@@ -2496,23 +2470,6 @@ function addCoreWall(
     plateMats.push(compose(px, pz, yBase + PLATE_Y, PLATE_T, PLATE_H, PLATE_W));
     pushNumber(px, pz);
   }
-}
-
-/** Reparto de un ida y vuelta en el fondo del ojo `shaftD` para subir `floorH`:
- *  escalones de tamaño realista (contrahuella ≈0.18, huella ≈0.27), una meseta de
- *  giro al fondo y un rellano de planta al frente con el resto del fondo. */
-function stairLayout(shaftD: number, floorH: number) {
-  const halfRise = floorH / 2;
-  const RISE = 0.18; // contrahuella objetivo
-  const GOING = 0.27; // huella objetivo
-  const N = Math.max(3, Math.round(halfRise / RISE)); // escalones por tramo
-  const rise = halfRise / N;
-  const landBack = Math.min(1.4, Math.max(1.0, shaftD * 0.3)); // meseta de giro (fondo)
-  const availRun = Math.max(0.6, shaftD - landBack);
-  const going = Math.min(GOING, availRun / N);
-  const flightRun = going * N;
-  const frontLand = Math.max(0, shaftD - landBack - flightRun); // rellano de planta (frente)
-  return { N, rise, going, halfRise, landBack, flightRun, frontLand };
 }
 
 /**

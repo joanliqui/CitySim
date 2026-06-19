@@ -1,7 +1,7 @@
 import { Rng } from '../../../../core/Rng';
 import type { Furniture } from '../types';
 import type { FurnishContext, FurnitureFactory } from './FurnitureFactory';
-import { footRect, placeAgainstWall } from './placement';
+import { footRect, FURNITURE_SCALE, placeAgainstWall } from './placement';
 
 /** Lavamanos pequeño contra pared. */
 export class SinkFactory implements FurnitureFactory {
@@ -10,13 +10,15 @@ export class SinkFactory implements FurnitureFactory {
       const v = ctx.bathVanity;
       const alongX = v.faceX === 0;
       const off = rng.range(-0.18, 0.18);
+      const basinL = 0.62 * FURNITURE_SCALE;
+      const basinD = 0.42 * FURNITURE_SCALE;
       return [
         {
           kind: 'sink',
           x: v.x + (alongX ? off : 0),
           z: v.z + (alongX ? 0 : off),
-          w: alongX ? 0.62 : 0.42,
-          d: alongX ? 0.42 : 0.62,
+          w: alongX ? basinL : basinD,
+          d: alongX ? basinD : basinL,
           faceX: v.faceX,
           faceZ: v.faceZ,
           sinkMount: 'vanity',

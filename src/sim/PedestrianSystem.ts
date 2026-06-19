@@ -1,13 +1,22 @@
-import type { Building, CityModel } from '../city/CityModel';
+import { apartmentCount, type Building, type CityModel } from '../city/CityModel';
 import { buildingFactories } from '../city/buildings/registry';
-import type { SidewalkGraph } from '../city/SidewalkGraph';
+import {
+  floorSurfaceY,
+  interiorStandPoint,
+  officeShaft,
+  stairWaypoints,
+  type StairPoint,
+} from '../city/buildings/interior/stairGeometry';
+import type { PathStep, SidewalkGraph } from '../city/SidewalkGraph';
 import { Rng } from '../core/Rng';
 import type { Leg, Pedestrian } from './agents';
+import { DEFAULT_PERSONALITY, randomPersonality, type Personality } from './personality';
 import type { TrafficLightSystem } from './TrafficLightSystem';
 
 const CROSS_SPEED = 2.4; // los peatones cruzan con prisa
 const CORNER_BLEND = 2.2; // metros suavizados alrededor de cada giro
 const DOOR_LEG_MIN = 0.8; // longitud mínima del tramo puerta→fachada
+const INSIDE_DEPTH = 1.6; // cuánto entra hacia dentro en edificios sin interior (m)
 
 export class PedestrianSystem {
   readonly pedestrians: Pedestrian[] = [];
@@ -22,7 +31,12 @@ export class PedestrianSystem {
   ) {
     this.rng = new Rng(seed);
     for (let id = 0; id < count; id++) {
-      const building = this.pickBuilding(null);
+      const home = this.pickHome();
+      const homeUnit = this.pickUnit(home);
+      // Empiezan en casa: el hogar es también su primer edificio actual.
+      const building = home;
+      // Visibles dentro de casa desde el arranque (en su estancia / planta).
+      const spot = this.standTarget(home, homeUnit, true);
       const ped: Pedestrian = {
         id,
         state: 'inside',
@@ -32,16 +46,22 @@ export class PedestrianSystem {
         walkSpeed: this.rng.range(1.15, 1.85),
         lateral: this.rng.range(-1, 1),
         colorIdx: this.rng.int(0, 8),
+        personality: randomPersonality(this.rng),
+        home,
+        homeUnit,
         building,
         timer: this.rng.range(0.5, 18),
-        x: building.approach.x,
-        z: building.approach.z,
+        facadeDoorOpen: false,
+        x: spot.x,
+        z: spot.z,
+        y: spot.y,
         heading: 0,
-        scale: 0,
-        prevX: building.approach.x,
-        prevZ: building.approach.z,
+        scale: 1,
+        prevX: spot.x,
+        prevZ: spot.z,
+        prevY: spot.y,
         prevHeading: 0,
-        prevScale: 0,
+        prevScale: 1,
       };
       this.pedestrians.push(ped);
     }
@@ -53,8 +73,11 @@ export class PedestrianSystem {
    * mallas instanciadas) no se mueven. Sale de un edificio inmediatamente.
    * Devuelve su índice.
    */
-  spawnCustom(): number {
-    const building = this.pickBuilding(null);
+  spawnCustom(personality: Personality = { ...DEFAULT_PERSONALITY }): number {
+    const home = this.pickHome();
+    const homeUnit = this.pickUnit(home);
+    const building = home;
+    const spot = this.standTarget(home, homeUnit, true);
     const ped: Pedestrian = {
       id: this.pedestrians.length,
       state: 'inside',
@@ -64,23 +87,77 @@ export class PedestrianSystem {
       walkSpeed: this.rng.range(1.15, 1.85),
       lateral: this.rng.range(-1, 1),
       colorIdx: 0,
+      personality,
+      home,
+      homeUnit,
       building,
       timer: 1,
-      x: building.approach.x,
-      z: building.approach.z,
+      facadeDoorOpen: false,
+      x: spot.x,
+      z: spot.z,
+      y: spot.y,
       heading: 0,
-      scale: 0,
-      prevX: building.approach.x,
-      prevZ: building.approach.z,
+      scale: 1,
+      prevX: spot.x,
+      prevZ: spot.z,
+      prevY: spot.y,
       prevHeading: 0,
-      prevScale: 0,
+      prevScale: 1,
     };
     this.pedestrians.push(ped);
     if (this.plan(ped)) {
       ped.state = 'exiting';
-      ped.scale = 0;
     }
     return this.pedestrians.length - 1;
+  }
+
+  /**
+   * Reencamina al peatón hacia su hogar. Si está dentro de un edificio sale por
+   * la puerta; si va por la calle reencamina desde el tramo de acera más
+   * cercano. Devuelve false si ya está en casa o no hay ruta.
+   */
+  goHome(index: number): boolean {
+    const ped = this.pedestrians[index];
+    if (!ped) return false;
+    if (ped.state === 'inside' && ped.building === ped.home) return false; // ya está en casa
+
+    if (ped.state === 'inside') {
+      // Sale por la puerta de su edificio actual y camina a casa.
+      if (!this.planTo(ped, ped.building, ped.home)) return false;
+      ped.state = 'exiting';
+      return true;
+    }
+
+    // En ruta y visible: reencamina desde el nodo de acera más cercano.
+    const startNode = this.graph.nearestNode(ped.x, ped.z);
+    const steps = this.graph.findPath(startNode, ped.home.doorNode);
+    if (!steps) return false;
+    const start = this.graph.nodes[startNode];
+    const legs: Leg[] = [makeLeg(ped.x, ped.z, start.x, start.z, 'walk')];
+    this.appendWalkLegs(legs, startNode, steps);
+    this.appendEntryLegs(legs, ped, ped.home);
+    ped.legs = legs;
+    ped.legIdx = 0;
+    ped.s = 0;
+    ped.y = 0;
+    ped.building = ped.home;
+    ped.state = 'walking';
+    return true;
+  }
+
+  /** Elige un hogar: una casa individual o un apartamento (edificio alto). */
+  private pickHome(): Building {
+    const weights = this.model.buildings.map((b) =>
+      b.type === 'house' || b.type === 'office' ? buildingFactories[b.type].pedestrianWeight : 0,
+    );
+    if (weights.every((w) => w === 0)) return this.pickBuilding(null); // por si no hay residenciales
+    return this.model.buildings[this.rng.weighted(weights)];
+  }
+
+  /** Elige el apartamento (planta 1..N) dentro de un edificio; 0 si es una casa. */
+  private pickUnit(home: Building): number {
+    const apts = apartmentCount(home);
+    return apts > 0 ? this.rng.int(1, apts + 1) : 0;
   }
 
   /** Los destinos favorecen a las tiendas y, sobre todo, a lo que queda cerca. */
@@ -96,16 +173,115 @@ export class PedestrianSystem {
     return this.model.buildings[this.rng.weighted(weights)];
   }
 
-  /** Construye la lista de piernas: salir por la puerta → acera/cruces → entrar por la puerta. */
+  /** Construye una ruta puerta a puerta hacia un destino aleatorio. */
   private plan(ped: Pedestrian): boolean {
-    const from = ped.building;
-    const to = this.pickBuilding(from);
+    return this.planTo(ped, ped.building, this.pickBuilding(ped.building));
+  }
+
+  /** Construye la lista de piernas: interior→puerta → acera/cruces → puerta→interior. */
+  private planTo(ped: Pedestrian, from: Building, to: Building): boolean {
+    if (from === to) return false;
     const steps = this.graph.findPath(from.doorNode, to.doorNode);
     if (!steps || steps.length === 0) return false;
 
     const legs: Leg[] = [];
+    this.prependExitLegs(legs, ped, from);
+    this.appendWalkLegs(legs, from.doorNode, steps);
+    this.appendEntryLegs(legs, ped, to);
+
+    ped.legs = legs;
+    ped.legIdx = 0;
+    ped.s = 0;
+    ped.building = to;
+    return true;
+  }
+
+  /**
+   * Punto donde el peatón se queda de pie dentro de un edificio:
+   *  - su propio apartamento (edificio alto): centro de su vivienda, en su planta;
+   *  - casa con interior: centro de la estancia mayor, planta baja;
+   *  - resto (tienda / caja maciza): un poco hacia dentro desde la fachada.
+   */
+  private standTarget(b: Building, homeUnit: number, isHome: boolean): StairPoint {
+    if (b.officeInterior && isHome && homeUnit > 0) {
+      const dwelling = b.officeInterior.dwellings[homeUnit - 1];
+      if (dwelling) {
+        const sp = interiorStandPoint(dwelling);
+        return { x: sp.x, z: sp.z, y: floorSurfaceY(homeUnit, b.officeInterior.floorH) };
+      }
+    }
+    if (b.interior) {
+      const sp = interiorStandPoint(b.interior);
+      return { x: sp.x, z: sp.z, y: 0 };
+    }
+    // Sin interior: un punto hacia dentro desde la fachada (faceX/Z apunta a la calle).
+    return { x: b.approach.x - b.faceX * INSIDE_DEPTH, z: b.approach.z - b.faceZ * INSIDE_DEPTH, y: 0 };
+  }
+
+  /**
+   * Piernas de ENTRADA al destino `to`: cruza el umbral y camina hasta su punto
+   * interior. Si `to` es su apartamento, sube por las escaleras planta a planta.
+   */
+  private appendEntryLegs(legs: Leg[], ped: Pedestrian, to: Building): void {
+    // door-in: de la puerta (acera) a la aproximación junto a la fachada.
+    legs.push(makeLeg(to.door.x, to.door.z, to.approach.x, to.approach.z, 'door-in'));
+    const target = this.standTarget(to, ped.homeUnit, to === ped.home);
+    const isApartment = !!to.officeInterior && to === ped.home && ped.homeUnit > 0;
+
+    if (isApartment) {
+      const oi = to.officeInterior!;
+      const shaft = officeShaft(to, oi.core);
+      // De la aproximación al arranque de la escalera (rellano de planta baja).
+      let prev: StairPoint = { x: to.approach.x, z: to.approach.z, y: 0 };
+      for (let f = 1; f <= ped.homeUnit; f++) {
+        const wp = stairWaypoints(shaft, oi.floorH, f);
+        // El primer punto (rellano de la planta inferior) se enlaza desde `prev`.
+        pushPath(legs, [prev, ...wp], f === 1 ? 'enter' : 'stairs', 'stairs');
+        prev = wp[wp.length - 1];
+      }
+      // Del rellano superior a la vivienda.
+      legs.push(makeLeg(prev.x, prev.z, target.x, target.z, 'unit', prev.y, target.y));
+      return;
+    }
+
+    // Planta baja: de la aproximación al punto interior.
+    legs.push(makeLeg(to.approach.x, to.approach.z, target.x, target.z, 'enter', 0, target.y));
+  }
+
+  /**
+   * Piernas de SALIDA desde el edificio `from` donde el peatón está dentro: de su
+   * punto interior a la calle. Si era su apartamento, baja por las escaleras.
+   */
+  private prependExitLegs(legs: Leg[], ped: Pedestrian, from: Building): void {
+    const target = this.standTarget(from, ped.homeUnit, from === ped.home);
+    const isApartment = !!from.officeInterior && from === ped.home && ped.homeUnit > 0;
+
+    if (isApartment) {
+      const oi = from.officeInterior!;
+      const shaft = officeShaft(from, oi.core);
+      // De la vivienda al rellano de su planta (arriba del todo).
+      const topWp = stairWaypoints(shaft, oi.floorH, ped.homeUnit);
+      const top = topWp[topWp.length - 1];
+      legs.push(makeLeg(target.x, target.z, top.x, top.z, 'unit', target.y, top.y));
+      // Baja planta a planta (waypoints invertidos).
+      for (let f = ped.homeUnit; f >= 1; f--) {
+        const wp = stairWaypoints(shaft, oi.floorH, f).slice().reverse();
+        pushPath(legs, wp, 'stairs', 'stairs');
+      }
+      // Del rellano de planta baja a la puerta de calle.
+      const base = stairWaypoints(shaft, oi.floorH, 1)[0];
+      legs.push(makeLeg(base.x, base.z, from.approach.x, from.approach.z, 'enter', base.y, 0));
+    } else {
+      // Del punto interior a la aproximación junto a la fachada.
+      legs.push(makeLeg(target.x, target.z, from.approach.x, from.approach.z, 'enter', target.y, 0));
+    }
+    // door-out: de la aproximación a la puerta (acera).
     legs.push(makeLeg(from.approach.x, from.approach.z, from.door.x, from.door.z, 'door-out'));
-    let prevNode = from.doorNode;
+  }
+
+  /** Traduce los pasos del grafo (nodo a nodo) en piernas de acera/cruce. */
+  private appendWalkLegs(legs: Leg[], startNode: number, steps: PathStep[]): void {
+    let prevNode = startNode;
     for (const step of steps) {
       const a = this.graph.nodes[prevNode];
       const b = this.graph.nodes[step.node];
@@ -118,21 +294,16 @@ export class PedestrianSystem {
       legs.push(leg);
       prevNode = step.node;
     }
-    legs.push(makeLeg(to.door.x, to.door.z, to.approach.x, to.approach.z, 'door-in'));
-
-    ped.legs = legs;
-    ped.legIdx = 0;
-    ped.s = 0;
-    ped.building = to;
-    return true;
   }
 
   step(dt: number, time: number): void {
     for (const ped of this.pedestrians) {
       ped.prevX = ped.x;
       ped.prevZ = ped.z;
+      ped.prevY = ped.y;
       ped.prevHeading = ped.heading;
       ped.prevScale = ped.scale;
+      ped.facadeDoorOpen = false;
 
       switch (ped.state) {
         case 'inside': {
@@ -140,7 +311,6 @@ export class PedestrianSystem {
           if (ped.timer <= 0) {
             if (this.plan(ped)) {
               ped.state = 'exiting';
-              ped.scale = 0;
             } else {
               ped.timer = 5;
             }
@@ -172,10 +342,13 @@ export class PedestrianSystem {
 
       // Fin de la pierna actual.
       if (ped.legIdx + 1 >= ped.legs.length) {
-        // Ha llegado a la fachada: entra en el edificio.
+        // Ha llegado a su punto interior: se queda dentro, de pie y visible.
         ped.state = 'inside';
         ped.timer = this.rng.range(4, 16);
         ped.s = leg.length;
+        ped.x = leg.bx;
+        ped.z = leg.bz;
+        ped.y = leg.by ?? 0;
         return;
       }
 
@@ -193,16 +366,22 @@ export class PedestrianSystem {
       } else if (next.kind === 'door-in') {
         ped.state = 'entering';
         ped.s = excess;
-      } else {
+      } else if (next.kind === 'walk') {
         ped.state = 'walking';
+        ped.s = excess;
+      } else {
+        // Tramos interiores (enter/stairs/unit): conservan la dirección del viaje.
+        // Al salir venimos de 'exiting'; al entrar, de 'entering' (tras el door-in).
+        ped.state = ped.state === 'entering' ? 'entering' : 'exiting';
         ped.s = excess;
       }
     }
   }
 
   private computePose(ped: Pedestrian): void {
+    ped.scale = 1; // siempre visibles: ahora se ven dentro de los edificios
     if (ped.state === 'inside') {
-      ped.scale = 0;
+      // De pie en su punto interior: mantiene la última pose calculada.
       return;
     }
     const leg = ped.legs[ped.legIdx];
@@ -221,32 +400,53 @@ export class PedestrianSystem {
       computeLegPose(ped, leg, ped.s);
     }
 
-    // Aparece al salir y se desvanece al entrar.
-    const t = Math.min(ped.s / leg.length, 1);
-    if (leg.kind === 'door-out') {
-      ped.scale = Math.min(t * 2, 1);
-    } else if (leg.kind === 'door-in') {
-      ped.scale = Math.max(1 - t, 0.001);
-    } else {
-      ped.scale = 1;
-    }
+    // La puerta de calle se abre solo mientras cruza el umbral (no toda la subida).
+    ped.facadeDoorOpen = isThresholdLeg(leg);
   }
 }
 
-function makeLeg(ax: number, az: number, bx: number, bz: number, kind: Leg['kind']): Leg {
+/** ¿La pierna cruza la puerta de calle (en planta baja)? El render abre la puerta. */
+function isThresholdLeg(leg: Leg): boolean {
+  if (leg.kind === 'door-in' || leg.kind === 'door-out') return true;
+  return leg.kind === 'enter' && (leg.ay ?? 0) < 0.5 && (leg.by ?? 0) < 0.5;
+}
+
+function makeLeg(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  kind: Leg['kind'],
+  ay = 0,
+  by = 0,
+): Leg {
   const length = Math.max(Math.hypot(bx - ax, bz - az), kind.startsWith('door') ? DOOR_LEG_MIN : 0.01);
-  return { ax, az, bx, bz, length, kind };
+  return { ax, az, bx, bz, length, kind, ay, by };
+}
+
+/** Añade una polilínea 3D como piernas consecutivas (primer tramo con `firstKind`). */
+function pushPath(legs: Leg[], pts: StairPoint[], firstKind: Leg['kind'], restKind: Leg['kind']): void {
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    legs.push(makeLeg(a.x, a.z, b.x, b.z, i === 0 ? firstKind : restKind, a.y, b.y));
+  }
+}
+
+/** Solo se redondean esquinas entre tramos de calle (andar/cruzar). */
+function isGroundWalk(leg: Leg): boolean {
+  return leg.kind === 'walk' || leg.kind === 'cross';
 }
 
 function canBlendCorner(ped: Pedestrian, to: Leg): boolean {
   if (ped.state === 'waiting') return false;
-  if (to.kind === 'door-in' || to.kind === 'door-out') return false;
+  if (!isGroundWalk(to)) return false;
   if (to.kind === 'cross') return ped.state === 'walking' || ped.state === 'crossing' || ped.legs[ped.legIdx] === to;
   return true;
 }
 
 function cornerRadius(a: Leg, b: Leg): number {
-  if (a.kind.startsWith('door') || b.kind.startsWith('door')) return 0;
+  if (!isGroundWalk(a) || !isGroundWalk(b)) return 0;
   return Math.min(CORNER_BLEND, a.length * 0.45, b.length * 0.45);
 }
 
@@ -254,6 +454,8 @@ function computeLegPose(ped: Pedestrian, leg: Leg, s: number): void {
   const p = pointOnLeg(ped, leg, s);
   ped.x = p.x;
   ped.z = p.z;
+  const t = Math.min(Math.max(s / leg.length, 0), 1);
+  ped.y = (leg.ay ?? 0) + ((leg.by ?? 0) - (leg.ay ?? 0)) * t;
   if (ped.state !== 'waiting') {
     const dx = (leg.bx - leg.ax) / leg.length;
     const dz = (leg.bz - leg.az) / leg.length;
@@ -275,6 +477,7 @@ function computeCornerPose(ped: Pedestrian, from: Leg, to: Leg, distanceFromCorn
   const bcz = b.z + (c.z - b.z) * u;
   ped.x = abx + (bcx - abx) * u;
   ped.z = abz + (bcz - abz) * u;
+  ped.y = 0; // las esquinas solo se redondean en tramos de calle (planta baja)
 
   if (ped.state !== 'waiting') {
     const dx = bcx - abx;

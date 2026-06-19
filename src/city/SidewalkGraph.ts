@@ -259,6 +259,20 @@ export class SidewalkGraph {
   }
 
   /** A* entre dos nodos. Devuelve los pasos (arista + nodo de llegada) o null. */
+  /** Nodo del grafo más cercano a un punto del mundo (para reencaminar en ruta). */
+  nearestNode(x: number, z: number): number {
+    let best = 0;
+    let bestD = Infinity;
+    for (const n of this.nodes) {
+      const d = (n.x - x) ** 2 + (n.z - z) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = n.id;
+      }
+    }
+    return best;
+  }
+
   findPath(start: number, goal: number): PathStep[] | null {
     if (start === goal) return [];
     const n = this.nodes.length;

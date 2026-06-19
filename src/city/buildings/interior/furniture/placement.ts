@@ -1,6 +1,14 @@
 import { Rng } from '../../../../core/Rng';
 import type { Furniture, FurnitureKind } from '../types';
 
+/**
+ * Factor de escala común del mobiliario: agranda todas las piezas para que
+ * guarden mejor proporción con el peatón (que mide ~1.6 m). Fuente única de
+ * verdad — las factorías que fijan tamaños literales lo multiplican; las que
+ * derivan su tamaño de la estancia crecen al agrandarse las casas.
+ */
+export const FURNITURE_SCALE = 1.25;
+
 /** Rectángulo axis-aligned en planta. */
 export type Rect = { x0: number; z0: number; x1: number; z1: number };
 
@@ -33,6 +41,10 @@ export function isFree(r: Rect, U: Rect, occupied: Rect[], gap = 0.08): boolean 
  * Compartido por armario y cómoda.
  */
 export function placeAgainstWall(U: Rect, occupied: Rect[], L: number, D: number, kind: FurnitureKind, rng: Rng): Furniture | null {
+  // Agranda la pieza con el factor común (colocación consciente de colisiones:
+  // los huecos se evalúan ya con el tamaño escalado).
+  L *= FURNITURE_SCALE;
+  D *= FURNITURE_SCALE;
   type Slot = { x: number; z: number; w: number; d: number; faceX: number; faceZ: number };
   const slots: Slot[] = [];
   const STEP = 0.2;

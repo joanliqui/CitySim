@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { lerpAngle } from '../city/CityModel';
 import type { Pedestrian } from '../sim/agents';
 import { buildCharacter, type CharacterAppearance } from './CharacterFactory';
+import { PED_SCALE } from './PedestrianMesh';
 
 interface Entry {
   /** Índice del peatón en el array de la simulación. */
@@ -75,17 +76,18 @@ export class CustomPedestrianMesh {
       group.visible = true;
       const x = p.prevX + (p.x - p.prevX) * alpha;
       const z = p.prevZ + (p.z - p.prevZ) * alpha;
+      const base = 0.12 + p.prevY + (p.y - p.prevY) * alpha;
       const heading = lerpAngle(p.prevHeading, p.heading, alpha);
       const walking = p.state === 'walking' || p.state === 'crossing' || p.state === 'exiting' || p.state === 'entering';
       const phase = timeMs * WALK_ANIM_SPEED + index * 1.7;
       const step = Math.sin(phase);
       const bob = walking ? step * 0.05 : 0;
       const handSwing = walking ? step * HAND_SWING_Z : 0;
-      group.position.set(x, 0.12 + bob, z);
+      group.position.set(x, base + bob, z);
       group.rotation.y = heading;
       // La escala base del grupo ya incluye la altura del personaje.
       const h = group.userData.height ?? 1;
-      group.scale.setScalar(s * h);
+      group.scale.setScalar(s * h * PED_SCALE);
       for (const hand of hands) {
         const side = hand.userData.handSide === 'left' ? -1 : 1;
         hand.position.z = (hand.userData.handBaseZ ?? 0.04) + handSwing * side;

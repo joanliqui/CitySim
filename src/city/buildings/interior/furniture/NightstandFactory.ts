@@ -1,7 +1,7 @@
 import { Rng } from '../../../../core/Rng';
 import type { Furniture } from '../types';
 import type { FurnishContext, FurnitureFactory } from './FurnitureFactory';
-import { footRect, isFree, overlapArea, type Rect } from './placement';
+import { footRect, FURNITURE_SCALE, isFree, overlapArea, type Rect } from './placement';
 
 /** Mesitas de noche a ambos lados del cabecero (una sola si solo cabe una). */
 export class NightstandFactory implements FurnitureFactory {
@@ -9,7 +9,7 @@ export class NightstandFactory implements FurnitureFactory {
     const bed = ctx.bed;
     if (!bed) return [];
     const out: Furniture[] = [];
-    const NS = 0.5; // lado de la mesita
+    const NS = 0.5 * FURNITURE_SCALE; // lado de la mesita
     // Eje largo de la cama = dirección de `face` (hacia los pies); cabecero opuesto.
     const longAlongX = bed.faceX !== 0;
     const headX = -bed.faceX;

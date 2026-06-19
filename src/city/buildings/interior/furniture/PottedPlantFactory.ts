@@ -1,13 +1,13 @@
 import { Rng } from '../../../../core/Rng';
 import type { Furniture } from '../types';
 import type { FurnishContext, FurnitureFactory } from './FurnitureFactory';
-import { isFree, type Rect } from './placement';
+import { FURNITURE_SCALE, isFree, type Rect } from './placement';
 
 /** Planta de interior en una esquina libre del comedor (maceta + follaje). */
 export class PottedPlantFactory implements FurnitureFactory {
   place(ctx: FurnishContext, rng: Rng): Furniture[] {
     const U = ctx.usable;
-    const P = 0.42; // huella de la maceta
+    const P = 0.42 * FURNITURE_SCALE; // huella de la maceta
     const corners: Array<[number, number]> = [
       [U.x0 + P / 2, U.z0 + P / 2],
       [U.x1 - P / 2, U.z0 + P / 2],

@@ -12,7 +12,7 @@ export class HouseFactory extends BuildingFactory {
   readonly courtyardKind: CourtyardKind = 'green';
 
   protected footprint(rng: Rng, _spec: DistrictSpec): Footprint {
-    return { front: rng.range(7.5, 10.5), depth: rng.range(7, 10), h: rng.range(3.4, 5.2) };
+    return { front: rng.range(9.5, 13), depth: rng.range(9, 12), h: rng.range(4.4, 6.2) };
   }
 
   protected fillFactors(): { front: number; depth: number } {

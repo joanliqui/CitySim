@@ -16,6 +16,9 @@ export class CameraRig {
   private freeLook = false;
   private yaw = 0;
   private pitch = 0;
+  /** Velocidad base de "vuelo" (m/s); Shift la multiplica por BOOST. */
+  private flySpeed = 45;
+  private static readonly BOOST = 120 / 45;
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -26,7 +29,9 @@ export class CameraRig {
     this.controls = new OrbitControls(camera, domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
-    this.controls.maxPolarAngle = 1.45;
+    // Permitimos mirar hasta la horizontal: si fuese < π/2, al salir de free-look
+    // mirando al horizonte OrbitControls reencuadraría hacia abajo (la "recolocación").
+    this.controls.maxPolarAngle = Math.PI / 2;
     this.controls.minDistance = 12;
     this.controls.maxDistance = halfExtent * 3;
     this.controls.target.set(0, 0, 0);
@@ -57,6 +62,20 @@ export class CameraRig {
 
   get isFollowing(): boolean {
     return this.followTarget !== null;
+  }
+
+  /** Velocidad base de vuelo en m/s (sin Shift). */
+  get flySpeedValue(): number {
+    return this.flySpeed;
+  }
+
+  setFlySpeed(value: number): void {
+    this.flySpeed = Math.max(5, Math.min(300, value));
+  }
+
+  private currentFlySpeed(): number {
+    const boosted = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    return this.flySpeed * (boosted ? CameraRig.BOOST : 1);
   }
 
   update(dt: number): void {
@@ -135,8 +154,26 @@ export class CameraRig {
     });
   }
 
+  /**
+   * Vacía el "momentum" residual de OrbitControls (sphericalDelta/panOffset que
+   * el damping va decayendo durante varios frames). Si no, al entrar en free-look
+   * ese delta queda congelado (no se llama a controls.update()) y al soltar se
+   * aplica de golpe, haciendo que la cámara se mueva sola. Drenamos sin mover la
+   * cámara: guardamos pose, un update sin damping pone los deltas a cero, restauramos.
+   */
+  private flushOrbitMomentum(): void {
+    const pos = this.camera.position.clone();
+    const tgt = this.controls.target.clone();
+    this.controls.enableDamping = false;
+    this.controls.update();
+    this.controls.enableDamping = true;
+    this.camera.position.copy(pos);
+    this.controls.target.copy(tgt);
+  }
+
   private beginFreeLook(pointerId: number): void {
     if (!this.freeLook) {
+      this.flushOrbitMomentum();
       this.syncAnglesFromCamera();
       this.freeLook = true;
       this.followTarget = null;
@@ -151,6 +188,14 @@ export class CameraRig {
     this.freeLook = false;
     this.keys.clear();
     this.controls.enabled = true;
+    // OrbitControls solo puede mirar hacia la horizontal o por debajo (maxPolarAngle).
+    // Si soltamos mirando hacia arriba, reencuadramos nosotros a la horizontal de forma
+    // controlada; así el traspaso es continuo para miradas horizontales/abajo y no hay
+    // un "salto" provocado por el clamp de OrbitControls en su primer update.
+    if (this.pitch > 0) {
+      this.pitch = 0;
+      this.applyFreeLookRotation();
+    }
     const d = Math.min(Math.max(this.camera.position.distanceTo(this.controls.target), 20), this.halfExtent * 3);
     this.camera.getWorldDirection(this.forward);
     this.controls.target.copy(this.camera.position).addScaledVector(this.forward, d);
@@ -175,7 +220,7 @@ export class CameraRig {
     if (this.keys.has('KeyC')) this.move.y -= 1;
     if (this.move.y === 0) return;
 
-    const speed = (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 120 : 45) * dt;
+    const speed = this.currentFlySpeed() * dt;
     const dy = this.move.y * speed;
     const nextY = Math.max(1.5, this.camera.position.y + dy);
     const appliedY = nextY - this.camera.position.y;
@@ -184,7 +229,7 @@ export class CameraRig {
   }
 
   private updateFreeLook(dt: number): void {
-    const speed = (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') ? 120 : 45) * dt;
+    const speed = this.currentFlySpeed() * dt;
     this.move.set(0, 0, 0);
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) this.move.z += 1;
     if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) this.move.z -= 1;

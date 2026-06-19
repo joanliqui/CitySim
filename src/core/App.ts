@@ -1,4 +1,5 @@
 import { generateCity } from '../city/CityGenerator';
+import { apartmentCount } from '../city/CityModel';
 import type * as THREE from 'three';
 import { CameraRig } from '../render/CameraRig';
 import { buildCityMesh, type DoorAnimator } from '../render/CityMesh';
@@ -11,10 +12,12 @@ import { TrafficLightMesh } from '../render/TrafficLightMesh';
 import { VehicleMesh } from '../render/VehicleMesh';
 import { Simulation } from '../sim/Simulation';
 import type { Pedestrian, Vehicle } from '../sim/agents';
+import { BIG_FIVE } from '../sim/personality';
 import { CustomPedestrianMesh } from '../render/CustomPedestrianMesh';
 import { BuildPanel, type BuildPass } from '../ui/BuildPanel';
+import { CameraPanel } from '../ui/CameraPanel';
 import { CharacterCreator } from '../ui/CharacterCreator';
-import { Hud, type AgentInfo } from '../ui/Hud';
+import { Hud, type AgentDetail, type AgentInfo } from '../ui/Hud';
 import { Picking, type PickResult } from '../ui/Picking';
 import { RadialMenu } from '../ui/RadialMenu';
 import { ActionRegistry } from '../interaction/ActionRegistry';
@@ -181,12 +184,19 @@ export class App {
         location.search = `?seed=${seed}&cars=${vehicles}&peds=${pedestrians}`;
       },
       onCreateCharacter: () => this.creator.open(),
+      onAgentAction: (id) => this.runAgentAction(id),
+      onFocusHome: () => {
+        if (this.selected?.kind === 'pedestrian') {
+          const p = this.sim.pedestrianSystem.pedestrians[this.selected.index];
+          this.focusBuilding(p.home);
+        }
+      },
     });
 
     // Creador de personajes: al confirmar, el peatón nace en la simulación
     // (al final del array → índices estables) y la cámara lo sigue.
-    this.creator = new CharacterCreator(hudRoot, (appearance) => {
-      const index = this.sim.pedestrianSystem.spawnCustom();
+    this.creator = new CharacterCreator(hudRoot, (appearance, personality) => {
+      const index = this.sim.pedestrianSystem.spawnCustom(personality);
       this.customPedMesh.add(index, appearance);
       this.select({ kind: 'pedestrian', index }, true);
     });
@@ -194,6 +204,11 @@ export class App {
     new BuildPanel(hudRoot, BUILD_PASSES, {
       onApply: (visibleLayers) => this.applyBuildLayers(visibleLayers),
       onFocusBillboard: () => this.focusBillboard(),
+    });
+
+    new CameraPanel(hudRoot, {
+      getFlySpeed: () => this.rig.flySpeedValue,
+      onSetFlySpeed: (value) => this.rig.setFlySpeed(value),
     });
 
     new Picking(
@@ -307,6 +322,17 @@ export class App {
     this.rig.controls.update();
   }
 
+  private focusBuilding(b: import('../city/CityModel').Building): void {
+    this.select(null);
+    const faceX = b.faceX ?? 0;
+    const faceZ = b.faceZ ?? 1;
+    const targetY = Math.max(b.h * 0.5, 4);
+    const distance = Math.max(b.w ?? 8, b.d ?? 8) * 1.8 + 12;
+    this.renderer.camera.position.set(b.x + faceX * distance, targetY + 8, b.z + faceZ * distance);
+    this.rig.controls.target.set(b.x, targetY, b.z);
+    this.rig.controls.update();
+  }
+
   private agentInfo(): AgentInfo | null {
     if (!this.selected) return null;
     if (this.selected.kind === 'vehicle') {
@@ -341,7 +367,16 @@ export class App {
       title: `Peatón #${p.id + 1}`,
       status: statusMap[p.state],
       detail: p.state === 'inside' ? `Saldrá en ${Math.max(0, p.timer).toFixed(0)} s` : `Destino: ${dest}`,
+      details: homeDetails(p),
+      stats: BIG_FIVE.map((t) => ({ label: t.label, value: p.personality[t.id] })),
+      actions: [{ id: 'go-home', label: '🏠 Ir a casa' }],
     };
+  }
+
+  /** Ejecuta una acción contextual sobre el peatón seleccionado. */
+  private runAgentAction(id: string): void {
+    if (!this.selected || this.selected.kind !== 'pedestrian') return;
+    if (id === 'go-home') this.sim.pedestrianSystem.goHome(this.selected.index);
   }
 
   /** Utilidad de depuración: coloca la cámara mirando a un punto. */
@@ -371,6 +406,12 @@ export class App {
       this.vehicleMesh.update(alpha);
       this.pedestrianMesh.update(alpha, now);
       this.customPedMesh.update(alpha, now, this.renderer.camera);
+      // Puertas de calle: abrir las que algún peatón está cruzando este frame
+      // (además del toggle manual del menú). El índice de puerta = building.id.
+      this.doors.clearAuto();
+      for (const ped of this.sim.pedestrianSystem.pedestrians) {
+        if (ped.facadeDoorOpen) this.doors.setAuto(ped.building.id, true);
+      }
       this.doors.update(realDt);
       this.lightMesh.update(this.clock.time);
       this.dayNight.update(this.clock.time);
@@ -396,4 +437,30 @@ export class App {
     };
     requestAnimationFrame(frame);
   }
+}
+
+/**
+ * Datos del hogar para la ficha. En apartamentos muestra el edificio y la
+ * planta, más un código tipo postal (p. ej. "E16-3" = Edificio 16, planta 3;
+ * "C8" = Casa 8).
+ */
+function homeDetails(p: Pedestrian): AgentDetail[] {
+  const home = p.home;
+  const apts = apartmentCount(home);
+  const numMatch = home.name.match(/\d+/);
+  const num = numMatch ? numMatch[0] : String(home.id);
+  const prefix = (home.name.trim()[0] ?? 'X').toUpperCase();
+
+  if (apts > 0 && p.homeUnit > 0) {
+    return [
+      { label: 'Edificio', value: home.name, focusHome: true },
+      { label: 'Apartamento', value: `Planta ${p.homeUnit} de ${apts}` },
+      { label: 'Código', value: `${prefix}${num}-${p.homeUnit}` },
+    ];
+  }
+  return [
+    { label: 'Hogar', value: home.name, focusHome: true },
+    { label: 'Tipo', value: 'Casa' },
+    { label: 'Código', value: `${prefix}${num}` },
+  ];
 }

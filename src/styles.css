@@ -228,14 +228,23 @@ body,
   font-size: 13px;
 }
 
-.agent-card {
+.agent-dock {
+  position: absolute;
   bottom: 18px;
   left: 16px;
-  min-width: 240px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
 }
 
-.agent-card.hidden {
+.agent-dock.hidden {
   display: none;
+}
+
+.agent-card {
+  position: static;
+  min-width: 240px;
 }
 
 .agent-title {
@@ -254,6 +263,130 @@ body,
   font-size: 12px;
   color: var(--text-dim);
   margin-bottom: 10px;
+}
+
+.stats-toggle {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.stats-toggle.hidden {
+  display: none;
+}
+
+.agent-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+.agent-stats.hidden {
+  display: none;
+}
+
+.agent-info-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.agent-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.agent-info-row span:first-child {
+  color: var(--text-dim);
+}
+
+.agent-info-row span:last-child {
+  text-align: right;
+}
+
+.agent-home-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #14b8a6;
+  font-size: 12px;
+  text-align: right;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  font-family: inherit;
+}
+.agent-home-link:hover {
+  color: #2dd4bf;
+  text-decoration: underline;
+}
+
+.agent-stat-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  margin-bottom: 3px;
+}
+
+.agent-stat-head span:last-child {
+  color: #14b8a6;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.agent-stat-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(160, 174, 188, 0.2);
+  overflow: hidden;
+}
+
+.agent-stat-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: #14b8a6;
+}
+
+.actions-toggle {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.actions-toggle.hidden {
+  display: none;
+}
+
+/* Panel lateral que se abre junto a la ficha del agente. */
+.agent-actions-panel {
+  position: static;
+  min-width: 180px;
+  align-self: stretch;
+}
+
+.agent-actions-panel.hidden {
+  display: none;
+}
+
+.agent-actions-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+.agent-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-action {
+  width: 100%;
 }
 
 .build-panel {
@@ -401,6 +534,69 @@ body,
   color: var(--text);
 }
 
+/* ── Panel de cámara (abajo a la derecha) ── */
+
+.camera-panel {
+  bottom: 16px;
+  right: 16px;
+  width: 244px;
+  display: flex;
+  gap: 10px;
+  transition:
+    width 0.18s,
+    padding 0.18s;
+}
+
+.camera-panel.collapsed {
+  width: 42px;
+  padding: 8px;
+}
+
+.camera-panel .camera-collapse {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.camera-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.camera-panel.collapsed .camera-content {
+  display: none;
+}
+
+.camera-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+.camera-flyspeed {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.camera-flyspeed-label {
+  min-width: 50px;
+  text-align: right;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.camera-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  line-height: 1.35;
+}
+
 /* ── Creador de personajes ── */
 
 .creator-overlay {
@@ -440,10 +636,103 @@ body,
   flex: 0 0 auto;
 }
 
+.creator-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.creator-tab {
+  flex: 1;
+}
+
+.creator-tab.active {
+  background: rgba(76, 201, 240, 0.25);
+  border-color: var(--accent);
+}
+
 .creator-body {
   display: flex;
   gap: 16px;
   min-height: 0;
+}
+
+.creator-body.hidden {
+  display: none;
+}
+
+/* ── Pestaña de personalidad ── */
+.personality-sliders {
+  gap: 14px;
+  justify-content: center;
+}
+
+.personality-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.personality-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.personality-value {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.personality-slider {
+  accent-color: #14b8a6;
+  width: 100%;
+}
+
+.personality-chart {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(340px, 50%);
+}
+
+.radar-svg {
+  width: 100%;
+  height: auto;
+}
+
+.radar-grid {
+  fill: none;
+  stroke: rgba(160, 174, 188, 0.45);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.radar-axis {
+  stroke: rgba(160, 174, 188, 0.55);
+  stroke-width: 1;
+}
+
+.radar-label {
+  fill: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.radar-data {
+  fill: rgba(20, 184, 166, 0.32);
+  stroke: #14b8a6;
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  transition: all 0.08s linear;
+}
+
+.radar-dot {
+  fill: #0f9e94;
+  stroke: #ffffff;
+  stroke-width: 2;
 }
 
 .creator-controls {
@@ -529,7 +818,8 @@ body,
 .hint {
   position: absolute;
   bottom: 14px;
-  right: 16px;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: 11.5px;
   color: rgba(255, 255, 255, 0.75);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
