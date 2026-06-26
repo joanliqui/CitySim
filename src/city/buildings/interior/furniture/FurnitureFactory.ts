@@ -39,6 +39,8 @@ export interface FurnishContext {
   bathVanity?: Furniture | null;
   /** Estantería abierta del baño, si existe. */
   bathShelf?: Furniture | null;
+  /** Último mueble bajo de cocina colocado; el microondas y los armarios altos se apoyan/cuelgan sobre él. */
+  kitchenCounter?: Furniture | null;
 }
 
 /**

@@ -72,6 +72,10 @@ export interface RenderBuckets {
   /** Toallas y pequeños objetos decorativos de baño. */
   bathTowelMats: THREE.Matrix4[];
   bathTowelColors: THREE.Color[];
+  /** Electrodomésticos de cocina (nevera, vitro, horno, microondas): acero claro. */
+  applianceMats: THREE.Matrix4[];
+  /** Encimeras de cocina (piedra clara). */
+  counterTopMats: THREE.Matrix4[];
   /** Peldaños de las escaleras de los edificios altos. */
   stairMats: THREE.Matrix4[];
   /** Barandillas de escaleras y rellanos (solo en los bordes que dan al ojo). */
@@ -167,13 +171,19 @@ export interface BuildingRenderHelpers {
   addCoffeeTable(f: RenderFurniture, wood: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
   addBookshelf(f: RenderFurniture, wood: THREE.Matrix4[], books: THREE.Matrix4[], bookColors: THREE.Color[]): void;
   addFloorLamp(f: RenderFurniture, dark: THREE.Matrix4[], warm: THREE.Matrix4[], shades: LampShade[]): void;
-  addShower(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[], glass: THREE.Matrix4[]): void;
+  addShower(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[], glass: THREE.Matrix4[], chrome: THREE.Matrix4[]): void;
   addBathtub(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[], glass: THREE.Matrix4[]): void;
   addSink(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[], mirror: THREE.Matrix4[]): void;
   addToilet(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
   addBathVanity(f: RenderFurniture, wood: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
   addBathShelf(f: RenderFurniture, wood: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
   addTowelStack(f: RenderFurniture, towelMats: THREE.Matrix4[], towelColors: THREE.Color[], dark: THREE.Matrix4[]): void;
+  addFridge(f: RenderFurniture, appliance: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
+  addStove(f: RenderFurniture, wood: THREE.Matrix4[], top: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
+  addOven(f: RenderFurniture, appliance: THREE.Matrix4[], wood: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
+  addMicrowave(f: RenderFurniture, appliance: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
+  addKitchenCounter(f: RenderFurniture, wood: THREE.Matrix4[], top: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
+  addKitchenCabinet(f: RenderFurniture, wood: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
   /** Casco hueco multiplanta de un edificio alto (rellano + escaleras + viviendas). */
   addOfficeShell(b: RenderBuilding, buckets: RenderBuckets): void;
   /** Paletas de color por tipo (datos puros). */

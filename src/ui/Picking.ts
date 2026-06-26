@@ -70,8 +70,11 @@ export class Picking {
     let bestD2 = Picking.PED_SCREEN_RADIUS * Picking.PED_SCREEN_RADIUS;
     for (let i = 0; i < this.pedestrians.length; i++) {
       const p = this.pedestrians[i];
-      if (p.state === 'inside' || p.scale <= 0.05) continue;
-      this.tmp.set(p.x, 1.1, p.z).project(this.camera);
+      // Los 'inside' también se pueden seleccionar (ahora son visibles dentro de
+      // casa); solo se descartan los realmente ocultos (escala ~0 en una puerta).
+      if (p.scale <= 0.05) continue;
+      // Usa su cota real: los de plantas altas están elevados sobre el suelo.
+      this.tmp.set(p.x, p.y + 1.1, p.z).project(this.camera);
       if (this.tmp.z < -1 || this.tmp.z > 1) continue;
       const x = rect.left + (this.tmp.x * 0.5 + 0.5) * rect.width;
       const y = rect.top + (-this.tmp.y * 0.5 + 0.5) * rect.height;

@@ -13,6 +13,7 @@ import { VehicleMesh } from '../render/VehicleMesh';
 import { Simulation } from '../sim/Simulation';
 import type { Pedestrian, Vehicle } from '../sim/agents';
 import { BIG_FIVE } from '../sim/personality';
+import { SOCIAL_CLASS_LABEL } from '../sim/socialClass';
 import { CustomPedestrianMesh } from '../render/CustomPedestrianMesh';
 import { BuildPanel, type BuildPass } from '../ui/BuildPanel';
 import { CameraPanel } from '../ui/CameraPanel';
@@ -275,10 +276,6 @@ export class App {
   }
 
   private select(result: PickResult, closeUp = false): void {
-    // No se puede seguir a alguien que está dentro de un edificio.
-    if (result?.kind === 'pedestrian' && this.sim.pedestrianSystem.pedestrians[result.index].state === 'inside') {
-      result = null;
-    }
     this.selected = result;
     if (!result) {
       this.rig.follow(null);
@@ -289,7 +286,11 @@ export class App {
       result.kind === 'vehicle'
         ? this.sim.vehicleSystem.vehicles[result.index]
         : this.sim.pedestrianSystem.pedestrians[result.index];
-    this.rig.follow(() => ({ x: agent.x, z: agent.z }), closeUp);
+    // Se puede seleccionar a quien está dentro de un edificio (ver su ficha), pero
+    // la cámara no lo sigue hasta dentro: solo se sigue a agentes a la vista.
+    const insidePed = result.kind === 'pedestrian' && agent.state === 'inside';
+    if (insidePed) this.rig.follow(null);
+    else this.rig.follow(() => ({ x: agent.x, z: agent.z }), closeUp);
   }
 
   private applyBuildLayers(visibleLayers: Set<string>): void {
@@ -362,11 +363,18 @@ export class App {
       exiting: `Saliendo a la calle`,
       inside: `Dentro de ${dest}`,
     };
+    const energyPct = Math.round(p.energy);
+    const status = p.sleeping ? 'Durmiendo' : statusMap[p.state];
+    const detail = p.sleeping
+      ? `Durmiendo · energía ${energyPct}%`
+      : p.state === 'inside'
+        ? `Energía ${energyPct}% · saldrá en ${Math.max(0, p.timer).toFixed(0)} s`
+        : `Destino: ${dest} · energía ${energyPct}%`;
     return {
       icon: '🚶',
       title: `Peatón #${p.id + 1}`,
-      status: statusMap[p.state],
-      detail: p.state === 'inside' ? `Saldrá en ${Math.max(0, p.timer).toFixed(0)} s` : `Destino: ${dest}`,
+      status,
+      detail,
       details: homeDetails(p),
       stats: BIG_FIVE.map((t) => ({ label: t.label, value: p.personality[t.id] })),
       actions: [{ id: 'go-home', label: '🏠 Ir a casa' }],
@@ -399,7 +407,7 @@ export class App {
       const steps = this.clock.tick(realDt);
       for (let k = 0; k < steps; k++) {
         this.clock.advance();
-        this.sim.step(this.clock.fixedDt, this.clock.time);
+        this.sim.step(this.clock.fixedDt, this.clock.time, this.dayNight.hour);
       }
 
       const alpha = this.clock.alpha;
@@ -453,12 +461,14 @@ function homeDetails(p: Pedestrian): AgentDetail[] {
 
   if (apts > 0 && p.homeUnit > 0) {
     return [
+      { label: 'Clase', value: SOCIAL_CLASS_LABEL[p.socialClass] },
       { label: 'Edificio', value: home.name, focusHome: true },
       { label: 'Apartamento', value: `Planta ${p.homeUnit} de ${apts}` },
       { label: 'Código', value: `${prefix}${num}-${p.homeUnit}` },
     ];
   }
   return [
+    { label: 'Clase', value: SOCIAL_CLASS_LABEL[p.socialClass] },
     { label: 'Hogar', value: home.name, focusHome: true },
     { label: 'Tipo', value: 'Casa' },
     { label: 'Código', value: `${prefix}${num}` },

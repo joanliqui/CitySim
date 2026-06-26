@@ -1,5 +1,6 @@
 import type { Building, RoadAxis } from '../city/CityModel';
 import type { Personality } from './personality';
+import type { SocialClass } from './socialClass';
 
 /* ── Vehículos ───────────────────────────────────────────────────────────── */
 
@@ -73,6 +74,8 @@ export interface Pedestrian {
   colorIdx: number;
   /** Rasgos de personalidad (Big Five), 0–100 cada uno. */
   personality: Personality;
+  /** Clase social: fija el tipo de vivienda que se le asigna. */
+  socialClass: SocialClass;
   /** Hogar fijo del peatón (una casa o un apartamento). */
   home: Building;
   /** Apartamento dentro del edificio (planta 1..N). 0 = casa individual. */
@@ -81,6 +84,13 @@ export interface Pedestrian {
   building: Building;
   /** Cuenta atrás dentro del edificio. */
   timer: number;
+  /** Energía/vitalidad (0–100): baja durante el día, se recupera durmiendo. */
+  energy: number;
+  /** Está tumbado en su cama durmiendo (recupera energía). */
+  sleeping: boolean;
+  /** Postura: 0 = de pie, 1 = tumbado en la cama (anima la transición). */
+  recline: number;
+  prevRecline: number;
   /** Mientras cruza el umbral de la puerta de calle de `building` (el render la abre). */
   facadeDoorOpen: boolean;
   /** Pose mundial + escala (para aparecer/desaparecer en puertas). */

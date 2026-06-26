@@ -17,6 +17,7 @@ interface Entry {
 const MARKER_Y = 2.35;
 const HAND_SWING_Z = 0.18;
 const WALK_ANIM_SPEED = 0.007;
+const HALF_PI = Math.PI / 2;
 
 /**
  * Render de los personajes creados por el usuario: cada uno es un grupo
@@ -76,18 +77,28 @@ export class CustomPedestrianMesh {
       group.visible = true;
       const x = p.prevX + (p.x - p.prevX) * alpha;
       const z = p.prevZ + (p.z - p.prevZ) * alpha;
-      const base = 0.12 + p.prevY + (p.y - p.prevY) * alpha;
+      const yInterp = p.prevY + (p.y - p.prevY) * alpha;
+      const base = 0.12 + yInterp;
       const heading = lerpAngle(p.prevHeading, p.heading, alpha);
       const walking = p.state === 'walking' || p.state === 'crossing' || p.state === 'exiting' || p.state === 'entering';
       const phase = timeMs * WALK_ANIM_SPEED + index * 1.7;
       const step = Math.sin(phase);
       const bob = walking ? step * 0.05 : 0;
       const handSwing = walking ? step * HAND_SWING_Z : 0;
-      group.position.set(x, base + bob, z);
-      group.rotation.y = heading;
       // La escala base del grupo ya incluye la altura del personaje.
       const h = group.userData.height ?? 1;
-      group.scale.setScalar(s * h * PED_SCALE);
+      const S = s * h * PED_SCALE;
+      group.scale.setScalar(S);
+      // Postura: 0 de pie, 1 tumbado. Se inclina el grupo y se lleva los pies al pie
+      // de la cama, a la altura del colchón (heading apunta a los pies → +footDir).
+      const rec = Math.min(1, Math.max(0, p.prevRecline + (p.recline - p.prevRecline) * alpha));
+      const footShift = 0.85 * S * rec;
+      const fx = x + Math.sin(heading) * footShift;
+      const fz = z + Math.cos(heading) * footShift;
+      const lieY = yInterp + 0.12;
+      const fy = base + bob + (lieY - (base + bob)) * rec;
+      group.position.set(fx, fy, fz);
+      group.rotation.set(-HALF_PI * rec, heading, 0, 'YXZ');
       for (const hand of hands) {
         const side = hand.userData.handSide === 'left' ? -1 : 1;
         hand.position.z = (hand.userData.handBaseZ ?? 0.04) + handSwing * side;

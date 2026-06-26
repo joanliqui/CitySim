@@ -271,6 +271,7 @@ export class Hud {
       <span>🚶 ${stats.walking} caminando</span>
       <span>🚦 ${stats.waiting} esperando</span>
       <span>🏠 ${stats.inside} en edificios</span>
+      <span>💤 ${stats.sleeping} durmiendo</span>
     `;
   }
 

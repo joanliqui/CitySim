@@ -1,4 +1,4 @@
-import { apartmentCount, type Building, type CityModel } from '../city/CityModel';
+import { apartmentCount, lerpAngle, type Building, type CityModel, type Furniture } from '../city/CityModel';
 import { buildingFactories } from '../city/buildings/registry';
 import {
   floorSurfaceY,
@@ -11,7 +11,32 @@ import type { PathStep, SidewalkGraph } from '../city/SidewalkGraph';
 import { Rng } from '../core/Rng';
 import type { Leg, Pedestrian } from './agents';
 import { DEFAULT_PERSONALITY, randomPersonality, type Personality } from './personality';
+import {
+  drainRate,
+  isNight,
+  isWakeUpTime,
+  RECLINE_TIME,
+  recoverRate,
+  sleepAt,
+} from './sleep';
+import { SOCIAL_CLASS_SHARE, SOCIAL_CLASSES, type SocialClass } from './socialClass';
 import type { TrafficLightSystem } from './TrafficLightSystem';
+
+/** Altura de la superficie del colchón sobre el suelo de la planta (ver `addBed`). */
+const MATTRESS_TOP = 0.52;
+
+/** Una vivienda concreta: una casa (`unit` 0) o un apartamento (`unit` = planta 1..N). */
+interface Dwelling {
+  building: Building;
+  unit: number;
+}
+
+/** Resultado del reparto: a qué vivienda y con qué clase social va un peatón. */
+interface HomeAssignment {
+  home: Building;
+  homeUnit: number;
+  socialClass: SocialClass;
+}
 
 const CROSS_SPEED = 2.4; // los peatones cruzan con prisa
 const CORNER_BLEND = 2.2; // metros suavizados alrededor de cada giro
@@ -21,6 +46,11 @@ const INSIDE_DEPTH = 1.6; // cuánto entra hacia dentro en edificios sin interio
 export class PedestrianSystem {
   readonly pedestrians: Pedestrian[] = [];
   private readonly rng: Rng;
+  /** Inventario barajado de viviendas: casas (1 por edificio) y apartamentos (1 por planta). */
+  private readonly casas: Dwelling[] = [];
+  private readonly apts: Dwelling[] = [];
+  /** Viviendas ya ocupadas (clave `edificio:planta`): cada una alberga a un solo peatón. */
+  private readonly taken = new Set<string>();
 
   constructor(
     private readonly model: CityModel,
@@ -30,9 +60,11 @@ export class PedestrianSystem {
     seed: number,
   ) {
     this.rng = new Rng(seed);
+    this.buildInventory();
+    // Reparto único de viviendas por clase social (precalculado antes del bucle).
+    const plan = this.assignHomes(count);
     for (let id = 0; id < count; id++) {
-      const home = this.pickHome();
-      const homeUnit = this.pickUnit(home);
+      const { home, homeUnit, socialClass } = plan[id];
       // Empiezan en casa: el hogar es también su primer edificio actual.
       const building = home;
       // Visibles dentro de casa desde el arranque (en su estancia / planta).
@@ -47,10 +79,15 @@ export class PedestrianSystem {
         lateral: this.rng.range(-1, 1),
         colorIdx: this.rng.int(0, 8),
         personality: randomPersonality(this.rng),
+        socialClass,
         home,
         homeUnit,
         building,
         timer: this.rng.range(0.5, 18),
+        energy: this.rng.range(70, 100),
+        sleeping: false,
+        recline: 0,
+        prevRecline: 0,
         facadeDoorOpen: false,
         x: spot.x,
         z: spot.z,
@@ -74,8 +111,8 @@ export class PedestrianSystem {
    * Devuelve su índice.
    */
   spawnCustom(personality: Personality = { ...DEFAULT_PERSONALITY }): number {
-    const home = this.pickHome();
-    const homeUnit = this.pickUnit(home);
+    const socialClass = this.pickClass();
+    const { home, homeUnit } = this.takeDwelling(socialClass);
     const building = home;
     const spot = this.standTarget(home, homeUnit, true);
     const ped: Pedestrian = {
@@ -88,10 +125,15 @@ export class PedestrianSystem {
       lateral: this.rng.range(-1, 1),
       colorIdx: 0,
       personality,
+      socialClass,
       home,
       homeUnit,
       building,
       timer: 1,
+      energy: this.rng.range(70, 100),
+      sleeping: false,
+      recline: 0,
+      prevRecline: 0,
       facadeDoorOpen: false,
       x: spot.x,
       z: spot.z,
@@ -128,7 +170,11 @@ export class PedestrianSystem {
       return true;
     }
 
-    // En ruta y visible: reencamina desde el nodo de acera más cercano.
+    return this.walkHome(ped);
+  }
+
+  /** Reencamina a un peatón que va por la calle hacia su hogar desde su posición. */
+  private walkHome(ped: Pedestrian): boolean {
     const startNode = this.graph.nearestNode(ped.x, ped.z);
     const steps = this.graph.findPath(startNode, ped.home.doorNode);
     if (!steps) return false;
@@ -145,19 +191,97 @@ export class PedestrianSystem {
     return true;
   }
 
-  /** Elige un hogar: una casa individual o un apartamento (edificio alto). */
-  private pickHome(): Building {
-    const weights = this.model.buildings.map((b) =>
-      b.type === 'house' || b.type === 'office' ? buildingFactories[b.type].pedestrianWeight : 0,
-    );
-    if (weights.every((w) => w === 0)) return this.pickBuilding(null); // por si no hay residenciales
-    return this.model.buildings[this.rng.weighted(weights)];
+  /**
+   * Construye el inventario de viviendas a partir del modelo: cada casa aporta una
+   * vivienda (`unit` 0) y cada edificio alto, una por planta (`unit` 1..N). Las dos
+   * listas se barajan para que el reparto posterior no siga el orden de la ciudad.
+   */
+  private buildInventory(): void {
+    for (const b of this.model.buildings) {
+      if (b.type === 'house') {
+        this.casas.push({ building: b, unit: 0 });
+      } else {
+        const apts = apartmentCount(b);
+        for (let u = 1; u <= apts; u++) this.apts.push({ building: b, unit: u });
+      }
+    }
+    this.shuffle(this.casas);
+    this.shuffle(this.apts);
   }
 
-  /** Elige el apartamento (planta 1..N) dentro de un edificio; 0 si es una casa. */
-  private pickUnit(home: Building): number {
-    const apts = apartmentCount(home);
-    return apts > 0 ? this.rng.int(1, apts + 1) : 0;
+  /**
+   * Reparte una vivienda única a cada peatón según su clase social:
+   *  - `alta`   vive en casas; `obrera` en apartamentos; `media` en cualquiera.
+   * Se asigna primero a alta y obrera (solo encajan en un tipo) y por último a la
+   * clase media, que rellena lo que quede en ambos tipos.
+   */
+  private assignHomes(count: number): HomeAssignment[] {
+    const classes = this.buildClassList(count);
+    const out = new Array<HomeAssignment>(count);
+    for (const cls of ['alta', 'obrera', 'media'] as SocialClass[]) {
+      for (let i = 0; i < count; i++) {
+        if (classes[i] === cls) out[i] = this.takeDwelling(cls);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Lista de clases sociales para `count` peatones siguiendo la pirámide
+   * (`SOCIAL_CLASS_SHARE`), con conteos exactos y orden barajado.
+   */
+  private buildClassList(count: number): SocialClass[] {
+    const alta = Math.round(count * SOCIAL_CLASS_SHARE.alta);
+    const media = Math.round(count * SOCIAL_CLASS_SHARE.media);
+    const obrera = Math.max(0, count - alta - media);
+    const list: SocialClass[] = [
+      ...Array<SocialClass>(alta).fill('alta'),
+      ...Array<SocialClass>(media).fill('media'),
+      ...Array<SocialClass>(obrera).fill('obrera'),
+    ];
+    this.shuffle(list);
+    return list;
+  }
+
+  /** Tipo de vivienda preferido por clase: la obrera prioriza apartamentos; el resto, casas. */
+  private poolsFor(cls: SocialClass): Dwelling[][] {
+    return cls === 'obrera' ? [this.apts, this.casas] : [this.casas, this.apts];
+  }
+
+  /**
+   * Toma (y marca como ocupada) una vivienda libre para la clase `cls`. Si su tipo
+   * preferido se ha agotado, usa el otro. Si no queda ninguna libre (más peatones
+   * que viviendas), comparte una existente para no dejar al peatón sin hogar.
+   */
+  private takeDwelling(cls: SocialClass): HomeAssignment {
+    const pools = this.poolsFor(cls);
+    for (const pool of pools) {
+      for (const d of pool) {
+        const k = `${d.building.id}:${d.unit}`;
+        if (!this.taken.has(k)) {
+          this.taken.add(k);
+          return { home: d.building, homeUnit: d.unit, socialClass: cls };
+        }
+      }
+    }
+    // Sin viviendas libres: reutiliza una (o cae a cualquier edificio si no hay residenciales).
+    const overflow = pools.find((p) => p.length > 0)?.[0];
+    const home = overflow ? overflow.building : this.pickBuilding(null);
+    return { home, homeUnit: overflow ? overflow.unit : 0, socialClass: cls };
+  }
+
+  /** Elige una clase social al azar según la pirámide de población. */
+  private pickClass(): SocialClass {
+    const i = this.rng.weighted([SOCIAL_CLASS_SHARE.alta, SOCIAL_CLASS_SHARE.media, SOCIAL_CLASS_SHARE.obrera]);
+    return SOCIAL_CLASSES[i];
+  }
+
+  /** Baraja in situ con el RNG seeded (Fisher–Yates), para no usar `Math.random`. */
+  private shuffle<T>(arr: T[]): void {
+    for (let k = arr.length - 1; k > 0; k--) {
+      const r = this.rng.int(0, k + 1);
+      [arr[k], arr[r]] = [arr[r], arr[k]];
+    }
   }
 
   /** Los destinos favorecen a las tiendas y, sobre todo, a lo que queda cerca. */
@@ -296,27 +420,31 @@ export class PedestrianSystem {
     }
   }
 
-  step(dt: number, time: number): void {
+  step(dt: number, time: number, hour: number): void {
     for (const ped of this.pedestrians) {
       ped.prevX = ped.x;
       ped.prevZ = ped.z;
       ped.prevY = ped.y;
       ped.prevHeading = ped.heading;
       ped.prevScale = ped.scale;
+      ped.prevRecline = ped.recline;
       ped.facadeDoorOpen = false;
 
+      // La energía baja de forma continua mientras está despierto (caminando o
+      // dentro); solo se recupera durmiendo. Así se cansa a lo largo de un único
+      // día y por la noche se va a dormir.
+      if (!ped.sleeping) ped.energy = Math.max(0, ped.energy - dt * drainRate(ped.personality));
+
+      // De noche, quien va por la calle hacia un destino que no es su casa se
+      // redirige a casa (los que ya están dentro lo deciden en stepInside).
+      if (isNight(hour) && ped.state === 'walking' && ped.building !== ped.home) {
+        this.walkHome(ped);
+      }
+
       switch (ped.state) {
-        case 'inside': {
-          ped.timer -= dt;
-          if (ped.timer <= 0) {
-            if (this.plan(ped)) {
-              ped.state = 'exiting';
-            } else {
-              ped.timer = 5;
-            }
-          }
+        case 'inside':
+          this.stepInside(ped, dt, hour);
           break;
-        }
         case 'waiting': {
           const leg = ped.legs[ped.legIdx];
           if (this.lights.pedCanCross(leg.crossNode!, leg.crossAxis!, time)) {
@@ -329,6 +457,94 @@ export class PedestrianSystem {
       }
       this.computePose(ped);
     }
+  }
+
+  /**
+   * Peatón dentro de un edificio: gasta/recupera energía y decide qué hacer.
+   *  - Durmiendo: recupera energía y se mantiene tumbado hasta despertar.
+   *  - Despierto y recién levantado: se incorpora antes de actuar.
+   *  - Con sueño y de noche: si está en casa se acuesta; si no, vuelve a casa.
+   *  - Si no, comportamiento normal (salir a un destino al expirar el temporizador).
+   */
+  private stepInside(ped: Pedestrian, dt: number, hour: number): void {
+    if (ped.sleeping) {
+      ped.energy = Math.min(100, ped.energy + dt * recoverRate(ped.personality));
+      this.lieInBed(ped, dt);
+      // Duerme toda la noche y se levanta a su hora de la mañana (ya recuperado).
+      if (isWakeUpTime(hour, ped.id)) ped.sleeping = false; // se levanta (recline baja abajo)
+      return;
+    }
+
+    // (La energía ya se ha descontado en el bucle principal, para todos los estados.)
+
+    // Si quedó tumbado (acaba de despertar), se incorpora antes de hacer nada más.
+    if (ped.recline > 0) {
+      this.getUp(ped, dt);
+      return;
+    }
+
+    // De noche nadie sale de paseo: o está en casa (y se acuesta al cansarse) o
+    // vuelve a casa de inmediato. Así por la noche todos convergen a dormir.
+    if (isNight(hour)) {
+      if (ped.building === ped.home) {
+        if (ped.energy <= sleepAt(ped.personality, ped.id)) ped.sleeping = true;
+      } else if (this.planTo(ped, ped.building, ped.home)) {
+        ped.state = 'exiting';
+      } else {
+        ped.timer = 5;
+      }
+      return;
+    }
+
+    // De día: ciclo normal: sale a un destino al expirar el temporizador.
+    ped.timer -= dt;
+    if (ped.timer <= 0) {
+      if (this.plan(ped)) ped.state = 'exiting';
+      else ped.timer = 5;
+    }
+  }
+
+  /** Desliza al peatón hacia su cama y lo va tumbando (`recline` → 1). */
+  private lieInBed(ped: Pedestrian, dt: number): void {
+    ped.recline = Math.min(1, ped.recline + dt / RECLINE_TIME);
+    const bed = this.bedTarget(ped.home, ped.homeUnit);
+    if (!bed) return;
+    const k = Math.min(1, dt / RECLINE_TIME);
+    ped.x += (bed.x - ped.x) * k;
+    ped.z += (bed.z - ped.z) * k;
+    ped.y += (bed.y - ped.y) * k;
+    ped.heading = lerpAngle(ped.heading, bed.heading, k);
+  }
+
+  /** Incorpora al peatón: vuelve a su punto interior de pie (`recline` → 0). */
+  private getUp(ped: Pedestrian, dt: number): void {
+    ped.recline = Math.max(0, ped.recline - dt / RECLINE_TIME);
+    const sp = this.standTarget(ped.home, ped.homeUnit, true);
+    const k = Math.min(1, dt / RECLINE_TIME);
+    ped.x += (sp.x - ped.x) * k;
+    ped.z += (sp.z - ped.z) * k;
+    ped.y += (sp.y - ped.y) * k;
+  }
+
+  /**
+   * Punto y orientación para dormir en la cama del hogar: centro de la cama, a la
+   * altura del colchón, con la cabeza hacia el cabecero. `null` si el hogar no tiene
+   * cama (entonces se duerme en el punto de estar de pie).
+   */
+  private bedTarget(b: Building, homeUnit: number): { x: number; z: number; y: number; heading: number } | null {
+    let furniture: readonly Furniture[] | undefined;
+    let yBase = 0;
+    if (b.officeInterior && homeUnit > 0) {
+      furniture = b.officeInterior.dwellings[homeUnit - 1]?.furniture;
+      yBase = floorSurfaceY(homeUnit, b.officeInterior.floorH);
+    } else if (b.interior) {
+      furniture = b.interior.furniture;
+    }
+    const bed = furniture?.find((f) => f.kind === 'bed');
+    if (!bed) return null;
+    // `faceX/faceZ` apunta a los pies; heading hacia los pies deja la cabeza del
+    // peatón en el cabecero al tumbarse boca arriba (ver pose en PedestrianMesh).
+    return { x: bed.x, z: bed.z, y: yBase + MATTRESS_TOP, heading: Math.atan2(bed.faceX, bed.faceZ) };
   }
 
   private advance(ped: Pedestrian, dt: number, time: number): void {

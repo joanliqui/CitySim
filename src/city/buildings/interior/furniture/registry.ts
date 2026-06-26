@@ -10,8 +10,14 @@ import { DiningChairFactory } from './DiningChairFactory';
 import { DiningTableFactory } from './DiningTableFactory';
 import { DresserFactory } from './DresserFactory';
 import { FloorLampFactory } from './FloorLampFactory';
+import { FridgeFactory } from './FridgeFactory';
 import type { FurnitureFactory } from './FurnitureFactory';
+import { KitchenCabinetFactory } from './KitchenCabinetFactory';
+import { KitchenCounterFactory } from './KitchenCounterFactory';
+import { MicrowaveFactory } from './MicrowaveFactory';
 import { NightstandFactory } from './NightstandFactory';
+import { OvenFactory } from './OvenFactory';
+import { StoveFactory } from './StoveFactory';
 import { PottedPlantFactory } from './PottedPlantFactory';
 import { RugFactory } from './RugFactory';
 import { ShowerFactory } from './ShowerFactory';
@@ -47,4 +53,10 @@ export const furnitureFactories: Record<FurnitureKind, FurnitureFactory> = {
   coffeeTable: new CoffeeTableFactory(),
   bookshelf: new BookshelfFactory(),
   floorLamp: new FloorLampFactory(),
+  fridge: new FridgeFactory(),
+  stove: new StoveFactory(),
+  oven: new OvenFactory(),
+  microwave: new MicrowaveFactory(),
+  kitchenCounter: new KitchenCounterFactory(),
+  kitchenCabinet: new KitchenCabinetFactory(),
 };

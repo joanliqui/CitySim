@@ -4,6 +4,7 @@ import type { Furniture, HouseInterior, InteriorWall, RoomRect } from './types';
 import { bathroomFurnisher } from './furniture/BathroomFurnisher';
 import { bedroomFurnisher } from './furniture/BedroomFurnisher';
 import { diningFurnisher } from './furniture/DiningFurnisher';
+import { kitchenFurnisher } from './furniture/KitchenFurnisher';
 
 /* ── Interiores de casas ───────────────────────────────────────────────────
  * Partición BSP del rectángulo interior: cada corte añade un tabique y se
@@ -163,10 +164,14 @@ export function makeHouseInterior(
   // T entre tabiques: cada puerta va en el tramo libre más largo de su pared.
   for (const wall of walls) placeWallDoor(wall, walls, rng);
 
-  // Amueblado: el amueblador de dormitorio elige la estancia y coloca las piezas.
+  // Amueblado por estancias, en orden: cada amueblador elige su estancia y reserva
+  // las que necesitan los siguientes (dormitorio → baño → cocina → comedor). La
+  // cocina toma una estancia libre o, si no la hay, monta una americana en la sala
+  // de entrada; el comedor (que va último) esquiva lo ya colocado en esa sala.
   const furniture: Furniture[] = [];
   bedroomFurnisher.furnish(rooms, walls, { x, z, w, d, t: WALL_T, faceX, faceZ }, rng, furniture);
   bathroomFurnisher.furnish(rooms, walls, { x, z, w, d, t: WALL_T, faceX, faceZ }, rng, furniture);
+  kitchenFurnisher.furnish(rooms, walls, { x, z, w, d, t: WALL_T, faceX, faceZ }, rng, furniture);
   diningFurnisher.furnish(rooms, walls, { x, z, w, d, t: WALL_T, faceX, faceZ }, rng, furniture);
 
   return { wallT: WALL_T, rooms, walls, furniture };

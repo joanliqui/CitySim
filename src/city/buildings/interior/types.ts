@@ -1,5 +1,5 @@
 /** Semántica de una estancia (se asigna al amueblar). */
-export type RoomKind = 'bedroom' | 'bathroom' | 'dining' | 'other';
+export type RoomKind = 'bedroom' | 'bathroom' | 'dining' | 'kitchen' | 'other';
 
 /** Rectángulo de estancia interior (coordenadas de mundo). */
 export interface RoomRect {
@@ -34,7 +34,13 @@ export type FurnitureKind =
   | 'tv'
   | 'coffeeTable'
   | 'bookshelf'
-  | 'floorLamp';
+  | 'floorLamp'
+  | 'fridge'
+  | 'stove'
+  | 'oven'
+  | 'microwave'
+  | 'kitchenCounter'
+  | 'kitchenCabinet';
 
 /**
  * Mueble axis-aligned en planta (coordenadas de mundo). `w`/`d` son la huella en
@@ -53,6 +59,8 @@ export interface Furniture {
   double?: boolean;
   /** Solo lavamanos: independiente o encastrado/sobre mueble bajo. */
   sinkMount?: 'standalone' | 'vanity';
+  /** Solo microondas: si va exento sobre su propio soporte (true) o apoyado en una encimera. */
+  microwaveStand?: boolean;
   /** Variación de acabado/color determinista. */
   variant?: number;
 }

@@ -16,6 +16,10 @@ const HAND_Z = 0.04;
 const HAND_R = 0.105;
 const HAND_SWING_Z = 0.18;
 const WALK_ANIM_SPEED = 0.007;
+const HALF_PI = Math.PI / 2;
+const BODY_R = 0.32; // radio de la cápsula del cuerpo (para apoyarla en el colchón)
+const BODY_CENTER_Y = 0.75; // altura local del centro de la cápsula (geometría trasladada)
+const HEAD_OFFSET_Y = 0.87; // de centro de cuerpo a centro de cabeza (1.62 − 0.75)
 
 /**
  * Render de peatones: cuerpo (cápsula) + cabeza, instanciados.
@@ -37,6 +41,7 @@ export class PedestrianMesh {
   private readonly quat = new THREE.Quaternion();
   private readonly scl = new THREE.Vector3();
   private readonly euler = new THREE.Euler();
+  private readonly off = new THREE.Vector3();
 
   constructor(private readonly pedestrians: Pedestrian[]) {
     const n = pedestrians.length;
@@ -97,7 +102,8 @@ export class PedestrianMesh {
       const x = p.prevX + (p.x - p.prevX) * alpha;
       const z = p.prevZ + (p.z - p.prevZ) * alpha;
       // Cota (planta baja = 0; >0 al subir escaleras / vivir en plantas altas).
-      const base = 0.12 + p.prevY + (p.y - p.prevY) * alpha;
+      const yInterp = p.prevY + (p.y - p.prevY) * alpha;
+      const base = 0.12 + yInterp;
       const heading = lerpAngle(p.prevHeading, p.heading, alpha);
       const walking = p.state === 'walking' || p.state === 'crossing' || p.state === 'exiting' || p.state === 'entering';
       const phase = timeMs * WALK_ANIM_SPEED + i * 1.7;
@@ -105,20 +111,28 @@ export class PedestrianMesh {
       const bob = walking ? step * 0.05 : 0;
       const handSwing = walking ? step * HAND_SWING_Z : 0;
 
-      this.quat.setFromEuler(this.euler.set(0, heading, 0));
-      this.mat.compose(this.pos.set(x, base + bob, z), this.quat, this.scl.set(s, s, s));
+      // Postura: 0 de pie, 1 tumbado. Se inclina el cuerpo (pitch) y se baja el
+      // centro hasta el colchón; cabeza y manos se derivan girando con el cuerpo.
+      const rec = Math.min(1, Math.max(0, p.prevRecline + (p.recline - p.prevRecline) * alpha));
+      this.quat.setFromEuler(this.euler.set(-HALF_PI * rec, heading, 0, 'YXZ'));
+      const cyStand = base + bob + BODY_CENTER_Y * s;
+      const cyLie = yInterp + BODY_R * s;
+      const cy = cyStand + (cyLie - cyStand) * rec; // centro de la cápsula
+
+      // Cuerpo: pos = centro − R·(0, 0.75s, 0) (la geometría tiene el centro en y=0.75).
+      this.off.set(0, BODY_CENTER_Y * s, 0).applyQuaternion(this.quat);
+      this.mat.compose(this.pos.set(x - this.off.x, cy - this.off.y, z - this.off.z), this.quat, this.scl.set(s, s, s));
       this.body.setMatrixAt(i, this.mat);
-      this.mat.compose(this.pos.set(x, base + bob + 1.62 * s, z), this.quat, this.scl.set(s, s, s));
+
+      // Cabeza: a 0.87s del centro a lo largo del eje del cuerpo.
+      this.off.set(0, HEAD_OFFSET_Y * s, 0).applyQuaternion(this.quat);
+      this.mat.compose(this.pos.set(x + this.off.x, cy + this.off.y, z + this.off.z), this.quat, this.scl.set(s, s, s));
       this.head.setMatrixAt(i, this.mat);
 
-      const sin = Math.sin(heading);
-      const cos = Math.cos(heading);
+      // Manos: offset desde el centro del cuerpo, girado por la orientación del cuerpo.
       for (const side of [-1, 1]) {
-        const localX = side * HAND_X * s;
-        const localZ = (HAND_Z + handSwing * side) * s;
-        const hx = x + cos * localX + sin * localZ;
-        const hz = z - sin * localX + cos * localZ;
-        this.mat.compose(this.pos.set(hx, base + bob + HAND_Y * s, hz), this.quat, this.scl.set(s, s, s));
+        this.off.set(side * HAND_X, HAND_Y - BODY_CENTER_Y, HAND_Z + handSwing * side).multiplyScalar(s).applyQuaternion(this.quat);
+        this.mat.compose(this.pos.set(x + this.off.x, cy + this.off.y, z + this.off.z), this.quat, this.scl.set(s, s, s));
         this.hands.setMatrixAt(i * 2 + (side < 0 ? 0 : 1), this.mat);
       }
     }

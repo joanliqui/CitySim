@@ -44,6 +44,11 @@ const BOOK_COLORS = [0x9a4b3f, 0x3f6f8f, 0x4f8f5f, 0xc7a23f, 0x6a4f8f, 0xb56a3f,
  *  estatura del peatón para que pase con margen. */
 const DOOR_TOP_MAX = 2.45;
 const BATH_TOWEL_COLORS = [0xf2efe8, 0x8fb7c9, 0xd8b6a4, 0xb8c8a2, 0xc7c1d9];
+/** Tonos de suelo interior (tarima/baldosa). Cada edificio elige uno para dar
+ *  variedad; las escaleras del edificio toman el mismo tono que su suelo. */
+const FLOOR_PALETTE = [0xc9b491, 0xb89a6e, 0xd8c39a, 0xa9885f, 0xcabfa6, 0xbfa17a];
+/** Tonos de tabique interior: variaciones suaves de blanco cálido por edificio. */
+const PARTITION_PALETTE = [0xe9e2d4, 0xeae6de, 0xe3ddcf, 0xdfe4e2, 0xeae0d0, 0xe6e1da];
 const TREE_GREENS = [0x4e8f4a, 0x5fa052, 0x3f7f45];
 const PALM_GREENS = [0x2f8f3f, 0x3aa14a, 0x2b7436];
 const HEDGE_GREENS = [0x315f25, 0x3f7f2c, 0x4d8b36, 0x2b5122];
@@ -1368,7 +1373,9 @@ function addBuildings(
   const doorPoses: DoorPose[] = [];
 
   const partitionMats: THREE.Matrix4[] = []; // tabiques interiores de las casas
+  const partitionColors: THREE.Color[] = []; // un tono de tabique por edificio
   const floorMats: THREE.Matrix4[] = []; // suelo interior de las casas
+  const floorColors: THREE.Color[] = []; // un tono de suelo por edificio
 
   // Mobiliario interior: cama (estructura, colchón, manta, almohadas, cabecero).
   const bedFrameMats: THREE.Matrix4[] = [];
@@ -1389,6 +1396,8 @@ function addBuildings(
   const bathWoodMats: THREE.Matrix4[] = [];
   const bathTowelMats: THREE.Matrix4[] = [];
   const bathTowelColors: THREE.Color[] = [];
+  const applianceMats: THREE.Matrix4[] = []; // electrodomésticos de cocina (acero claro)
+  const counterTopMats: THREE.Matrix4[] = []; // encimeras de cocina (piedra clara)
   const plantPotMats: THREE.Matrix4[] = []; // macetas (terracota) de plantas de interior
   const plantLeafMats: THREE.Matrix4[] = []; // follaje (verde) de plantas de interior
   const upholsteryMats: THREE.Matrix4[] = []; // tapizado de sofás/sillones
@@ -1397,6 +1406,7 @@ function addBuildings(
   const bookColors: THREE.Color[] = [];
   const lampShades: LampShade[] = []; // pantallas emisivas de lámparas de pie (varias geometrías)
   const stairMats: THREE.Matrix4[] = []; // peldaños de las escaleras de los edificios altos
+  const stairColors: THREE.Color[] = []; // peldaños del color del suelo de cada edificio
   const stairRailMats: THREE.Matrix4[] = []; // barandillas de escaleras/rellanos (lado del ojo)
   const dwellingDoorMats: THREE.Matrix4[] = []; // hojas de puerta de las viviendas en edificios altos
   const dwellingDoorHandleMats: THREE.Matrix4[] = []; // pomos de esas puertas
@@ -1421,6 +1431,7 @@ function addBuildings(
     bedFrameMats, bedMattressMats, bedBlanketMats, bedPillowMats, bedHeadboardMats,
     furnWoodMats, furnDarkMats, rugMats, rugColors,
     bathCeramicMats, bathDarkMats, bathGlassMats, bathMirrorMats, bathWoodMats, bathTowelMats, bathTowelColors,
+    applianceMats, counterTopMats,
     plantPotMats, plantLeafMats,
     upholsteryMats, upholsteryColors, bookMats, bookColors, lampShades,
     stairMats, stairRailMats, dwellingDoorMats, dwellingDoorHandleMats, doorPlateMats, plateNumberMats,
@@ -1431,7 +1442,8 @@ function addBuildings(
     addFlatRoof, addRoofFixture, addFrontBalconies, addFacadeBands, addWindowRow, addHouseShell, addBed,
     addNightstand, addWardrobe, addDresser, addRug, addShower, addBathtub, addSink, addToilet, addBathVanity, addBathShelf, addTowelStack,
     addDiningTable, addDiningChair, addSideboard, addPottedPlant,
-    addUpholstered, addTv, addCoffeeTable, addBookshelf, addFloorLamp, addOfficeShell,
+    addUpholstered, addTv, addCoffeeTable, addBookshelf, addFloorLamp,
+    addFridge, addStove, addOven, addMicrowave, addKitchenCounter, addKitchenCabinet, addOfficeShell,
     palettes: { building: BUILDING_PALETTES, awning: AWNING_COLORS, sign: SIGN_COLORS },
   };
   const ctx: BuildingRenderCtx = { buckets, helpers };
@@ -1447,6 +1459,15 @@ function addBuildings(
 
     // Geometría propia del tipo (cuerpo, tejado, ventanas, detalles característicos).
     buildingRenderers[b.type].render(b, variant, geom, ctx);
+
+    // Variedad de interior por edificio: un tono de suelo (que comparten sus
+    // escaleras) y un tono de tabique. Se rellenan los arrays de color hasta la
+    // longitud actual de cada bucket, así no hay que tocar las funciones internas.
+    const floorColor = new THREE.Color(FLOOR_PALETTE[(b.colorIdx * 2 + variant) % FLOOR_PALETTE.length]);
+    const wallColor = new THREE.Color(PARTITION_PALETTE[(b.colorIdx + variant + 1) % PARTITION_PALETTE.length]);
+    while (floorColors.length < floorMats.length) floorColors.push(floorColor);
+    while (stairColors.length < stairMats.length) stairColors.push(floorColor);
+    while (partitionColors.length < partitionMats.length) partitionColors.push(wallColor);
 
     // Detalles comunes a todos los tipos: aire acondicionado, bajantes y AC de cubierta.
     addBuildingDetails(b, variant, acBodyMats, acVentMats, pipeMats, acRoofMats, acFanMats);
@@ -1470,8 +1491,8 @@ function addBuildings(
     }),
   );
   // Interiores de casas: tabiques claros y suelo de tarima.
-  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xe9e2d4 }), partitionMats, { castShadow: true, receiveShadow: true }));
-  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xc9b491 }), floorMats, { receiveShadow: true }));
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), partitionMats, { castShadow: true, receiveShadow: true, colors: partitionColors }));
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), floorMats, { receiveShadow: true, colors: floorColors }));
   // Camas: estructura de madera, colchón claro, manta de color, almohadas y cabecero.
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x6b4f37 }), bedFrameMats, { castShadow: true, receiveShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xf3efe6 }), bedMattressMats, { castShadow: true, receiveShadow: true }));
@@ -1495,13 +1516,17 @@ function addBuildings(
   // Baños: porcelana clara, detalles cromados/oscuros y cristal/agua azulada.
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xf2f1e8 }), bathCeramicMats, { castShadow: true, receiveShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x5d6870 }), bathDarkMats, { castShadow: true }));
-  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x86c8dc, transparent: true, opacity: 0.55 }), bathGlassMats));
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xaad6e3, transparent: true, opacity: 0.34 }), bathGlassMats));
   group.add(instanced(unitBox, new THREE.MeshStandardMaterial({ color: 0xb8d2dc, metalness: 0.45, roughness: 0.18 }), bathMirrorMats));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x8b623d }), bathWoodMats, { castShadow: true, receiveShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), bathTowelMats, { castShadow: true, colors: bathTowelColors }));
-  // Escaleras de los edificios altos (hormigón).
-  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x9a9ea3 }), stairMats, { castShadow: true, receiveShadow: true }));
-  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x3a4248 }), stairRailMats, { castShadow: true }));
+  // Cocina: electrodomésticos de acero claro y encimeras de piedra clara.
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xd3d8de }), applianceMats, { castShadow: true, receiveShadow: true }));
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xe9e6dd }), counterTopMats, { castShadow: true, receiveShadow: true }));
+  // Escaleras de los edificios altos: peldaños del color del suelo de cada edificio
+  // (colores por instancia); barandilla en un tono oscuro neutro para contraste.
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), stairMats, { castShadow: true, receiveShadow: true, colors: stairColors }));
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x8f7a55 }), stairRailMats, { castShadow: true }));
   // Puertas de vivienda visibles desde el rellano de cada edificio alto.
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x5a412d }), dwellingDoorMats, { castShadow: true, receiveShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xd1aa55 }), dwellingDoorHandleMats, { castShadow: true }));
@@ -2115,14 +2140,73 @@ function addFloorLamp(f: RenderFurniture, dark: THREE.Matrix4[], warm: THREE.Mat
 }
 
 /** Ducha: plato bajo + dos mamparas ligeras + grifería. */
-function addShower(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[], glass: THREE.Matrix4[], yBase = 0): void {
-  ceramic.push(compose(f.x, f.z, yBase + 0.08, f.w, 0.16, f.d));
-  const fx = f.x + f.faceX * (f.w / 2 - 0.08);
-  const fz = f.z + f.faceZ * (f.d / 2 - 0.08);
-  const alongX = f.faceX === 0;
-  glass.push(compose(f.x, f.z + (alongX ? f.faceZ * (f.d / 2 - 0.04) : 0), yBase + 0.95, f.w, 1.55, 0.05));
-  glass.push(compose(f.x + (alongX ? 0 : f.faceX * (f.w / 2 - 0.04)), f.z, yBase + 0.95, 0.05, 1.55, f.d));
-  dark.push(compose(fx, fz, yBase + 1.25, 0.08, 0.08, 0.08));
+/**
+ * Ducha: plato de ducha blanco bajo con desagüe, mampara de cristal en esquina
+ * (dos paños de vidrio enmarcados en cromo en la cara abierta y un lateral; las
+ * otras dos caras quedan contra la pared) y columna de ducha con la alcachofa de
+ * lluvia colgada de la pared del fondo, bien visible.
+ */
+function addShower(
+  f: RenderFurniture,
+  ceramic: THREE.Matrix4[],
+  dark: THREE.Matrix4[],
+  glass: THREE.Matrix4[],
+  chrome: THREE.Matrix4[],
+  yBase = 0,
+): void {
+  const ax = f.faceX; // vector a la cara ABIERTA; la pared del fondo es -face
+  const az = f.faceZ;
+  const facesX = ax !== 0;
+
+  // Plato de ducha: losa blanca baja a ras de suelo, con rejilla de desagüe.
+  const TRAY_H = 0.09;
+  ceramic.push(compose(f.x, f.z, yBase + TRAY_H / 2, f.w, TRAY_H, f.d));
+  dark.push(compose(f.x + ax * 0.18, f.z + az * 0.18, yBase + TRAY_H + 0.006, 0.13, 0.02, 0.13));
+
+  // Mampara: dos paños de cristal (cara abierta +face y un lateral en +X/+Z) con
+  // perfiles cromados arriba/abajo y postes en las esquinas.
+  const GLASS_H = 1.92;
+  const PT = 0.04; // grosor del cristal
+  const FR = 0.05; // grosor de los perfiles cromados
+  const gcy = yBase + TRAY_H + GLASS_H / 2;
+  const yTop = yBase + TRAY_H + GLASS_H;
+  const yBot = yBase + TRAY_H + FR / 2;
+  const frontX = f.x + ax * (f.w / 2 - PT / 2);
+  const frontZ = f.z + az * (f.d / 2 - PT / 2);
+  const sideX = f.x + (f.w / 2 - PT / 2); // lateral abierto en +X (cuando mira en Z)
+  const sideZ = f.z + (f.d / 2 - PT / 2); // lateral abierto en +Z (cuando mira en X)
+
+  if (facesX) {
+    glass.push(compose(frontX, f.z, gcy, PT, GLASS_H, f.d)); // paño frontal
+    glass.push(compose(f.x, sideZ, gcy, f.w, GLASS_H, PT)); // paño lateral
+    chrome.push(compose(frontX, f.z, yTop, FR, FR, f.d));
+    chrome.push(compose(frontX, f.z, yBot, FR, FR, f.d));
+    chrome.push(compose(f.x, sideZ, yTop, f.w, FR, FR));
+    chrome.push(compose(f.x, sideZ, yBot, f.w, FR, FR));
+    chrome.push(compose(frontX, f.z, gcy, FR, GLASS_H, FR)); // montante central (puerta)
+  } else {
+    glass.push(compose(f.x, frontZ, gcy, f.w, GLASS_H, PT));
+    glass.push(compose(sideX, f.z, gcy, PT, GLASS_H, f.d));
+    chrome.push(compose(f.x, frontZ, yTop, f.w, FR, FR));
+    chrome.push(compose(f.x, frontZ, yBot, f.w, FR, FR));
+    chrome.push(compose(sideX, f.z, yTop, FR, FR, f.d));
+    chrome.push(compose(sideX, f.z, yBot, FR, FR, f.d));
+    chrome.push(compose(f.x, frontZ, gcy, FR, GLASS_H, FR));
+  }
+  for (const cxs of [-1, 1] as const) {
+    for (const czs of [-1, 1] as const) {
+      chrome.push(compose(f.x + cxs * (f.w / 2 - FR / 2), f.z + czs * (f.d / 2 - FR / 2), gcy, FR, GLASS_H, FR));
+    }
+  }
+
+  // Columna de ducha sobre la pared del fondo (-face): barra vertical, grifo
+  // termostático, brazo y rociador de lluvia colgando, todo cromado y visible.
+  const backX = f.x - ax * (f.w / 2 - 0.04);
+  const backZ = f.z - az * (f.d / 2 - 0.04);
+  chrome.push(compose(backX, backZ, yBase + 1.5, 0.07, 1.2, 0.07)); // barra vertical
+  chrome.push(compose(backX + ax * 0.04, backZ + az * 0.04, yBase + 1.02, facesX ? 0.1 : 0.22, 0.16, facesX ? 0.22 : 0.1)); // grifo
+  chrome.push(compose(backX + ax * 0.17, backZ + az * 0.17, yBase + 1.98, facesX ? 0.3 : 0.05, 0.05, facesX ? 0.05 : 0.3)); // brazo
+  chrome.push(compose(backX + ax * 0.32, backZ + az * 0.32, yBase + 1.92, 0.24, 0.05, 0.24)); // rociador de lluvia
 }
 
 /** Bañera: cubeta clara con agua interior. */
@@ -2207,6 +2291,128 @@ function addTowelStack(f: RenderFurniture, towelMats: THREE.Matrix4[], towelColo
     towelColors.push(new THREE.Color(BATH_TOWEL_COLORS[((f.variant ?? 0) + i) % BATH_TOWEL_COLORS.length]));
   }
   dark.push(compose(f.x + f.w * 0.42, f.z, yBase + baseY + 0.18, 0.08, 0.2, 0.08));
+}
+
+/* ── Cocina ──────────────────────────────────────────────────────────────── */
+const KITCHEN_COUNTER_H = 0.9; // altura de la encimera (compartida por encimera y microondas)
+
+/** Nevera: electrodoméstico alto de acero con junta frigo/congelador y dos tiradores. */
+function addFridge(f: RenderFurniture, appliance: THREE.Matrix4[], dark: THREE.Matrix4[], yBase = 0): void {
+  const H = 1.85;
+  appliance.push(compose(f.x, f.z, yBase + H / 2, f.w, H, f.d));
+  const alongX = f.faceX === 0;
+  const fr = (f.faceX !== 0 ? f.w : f.d) / 2;
+  const fx = f.x + f.faceX * fr;
+  const fz = f.z + f.faceZ * fr;
+  const frontW = alongX ? f.w : f.d;
+  dark.push(compose(fx, fz, yBase + H * 0.62, alongX ? frontW * 0.95 : 0.03, 0.04, alongX ? 0.03 : frontW * 0.95)); // junta horizontal
+  const hx = alongX ? frontW * 0.3 : 0;
+  const hz = alongX ? 0 : frontW * 0.3;
+  for (const cy of [H * 0.3, H * 0.8]) {
+    dark.push(compose(fx + hx, fz + hz, yBase + cy, alongX ? 0.05 : 0.04, 0.34, alongX ? 0.04 : 0.05)); // tiradores verticales
+  }
+}
+
+/**
+ * Vitrocerámica: módulo de mueble bajo (cuerpo + encimera) con la placa de cocción
+ * EMPOTRADA a ras de la encimera (cristal oscuro) y cuatro fuegos marcados. Comparte
+ * cuerpo y encimera con los armarios bajos para que la placa "forme parte del mueble".
+ */
+function addStove(f: RenderFurniture, wood: THREE.Matrix4[], top: THREE.Matrix4[], dark: THREE.Matrix4[], yBase = 0): void {
+  const H = 0.86;
+  const FOOT = 0.1;
+  wood.push(compose(f.x, f.z, yBase + FOOT + (H - FOOT) / 2, f.w, H - FOOT, f.d)); // cuerpo del mueble
+  top.push(compose(f.x, f.z, yBase + H + 0.02, f.w + 0.06, 0.06, f.d + 0.06)); // encimera (sobresale)
+  // Placa de cocción empotrada: cristal oscuro a ras de la encimera, centrado.
+  const glassW = Math.min(f.w * 0.7, f.d * 1.3);
+  const glassD = f.d * 0.66;
+  dark.push(compose(f.x, f.z, yBase + H + 0.055, glassW, 0.02, glassD));
+  // Cuatro fuegos: aros claros impresos sobre el cristal (marcas finas).
+  const bx = glassW * 0.26;
+  const bz = glassD * 0.26;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    top.push(compose(f.x + sx * bx, f.z + sz * bz, yBase + H + 0.067, glassW * 0.32, 0.006, glassD * 0.32));
+  }
+  // Tirador de cajón bajo la encimera (es un mueble más).
+  const alongX = f.faceX === 0;
+  const fr = (f.faceX !== 0 ? f.w : f.d) / 2;
+  const fx = f.x + f.faceX * fr;
+  const fz = f.z + f.faceZ * fr;
+  const frontW = alongX ? f.w : f.d;
+  dark.push(compose(fx, fz, yBase + H * 0.55, alongX ? frontW * 0.5 : 0.05, 0.05, alongX ? 0.05 : frontW * 0.5));
+}
+
+/**
+ * Horno: integrado en un cuerpo de mueble (no exento). Puerta oscura de cristal que
+ * ocupa el frente, marco/tirador de acero y panel de mandos arriba — como un horno
+ * empotrado en la columna de armarios.
+ */
+function addOven(f: RenderFurniture, appliance: THREE.Matrix4[], wood: THREE.Matrix4[], dark: THREE.Matrix4[], yBase = 0): void {
+  const H = 0.9;
+  wood.push(compose(f.x, f.z, yBase + H / 2, f.w, H, f.d)); // cuerpo del mueble
+  const alongX = f.faceX === 0;
+  const fr = (f.faceX !== 0 ? f.w : f.d) / 2;
+  const fx = f.x + f.faceX * fr;
+  const fz = f.z + f.faceZ * fr;
+  const frontW = alongX ? f.w : f.d;
+  // Marco de acero del horno encastrado.
+  appliance.push(compose(fx, fz, yBase + H * 0.45, alongX ? frontW * 0.86 : 0.03, H * 0.66, alongX ? 0.03 : frontW * 0.86));
+  // Puerta de cristal oscuro.
+  dark.push(compose(fx, fz, yBase + H * 0.4, alongX ? frontW * 0.74 : 0.05, H * 0.46, alongX ? 0.05 : frontW * 0.74));
+  // Tirador de acero.
+  appliance.push(compose(fx, fz, yBase + H * 0.66, alongX ? frontW * 0.66 : 0.06, 0.05, alongX ? 0.06 : frontW * 0.66));
+  // Panel de mandos (acero) arriba.
+  appliance.push(compose(fx, fz, yBase + H * 0.82, alongX ? frontW * 0.78 : 0.04, 0.1, alongX ? 0.04 : frontW * 0.78));
+}
+
+/** Microondas: caja pequeña de acero a la altura de la encimera, con puerta oscura.
+ *  Exento (`microwaveStand`) añade un soporte esbelto debajo para no flotar. */
+function addMicrowave(f: RenderFurniture, appliance: THREE.Matrix4[], dark: THREE.Matrix4[], yBase = 0): void {
+  const base = yBase + KITCHEN_COUNTER_H;
+  const H = 0.3;
+  if (f.microwaveStand) dark.push(compose(f.x, f.z, yBase + KITCHEN_COUNTER_H / 2, f.w * 0.7, KITCHEN_COUNTER_H, f.d * 0.7)); // soporte
+  appliance.push(compose(f.x, f.z, base + H / 2, f.w, H, f.d));
+  const alongX = f.faceX === 0;
+  const fr = (f.faceX !== 0 ? f.w : f.d) / 2;
+  const fx = f.x + f.faceX * fr;
+  const fz = f.z + f.faceZ * fr;
+  const frontW = alongX ? f.w : f.d;
+  dark.push(compose(fx, fz, base + H / 2, alongX ? frontW * 0.66 : 0.03, H * 0.7, alongX ? 0.03 : frontW * 0.66)); // puerta/cristal
+}
+
+/** Encimera con armarios bajos: cuerpo de madera + tablero claro + dos puertas con tirador. */
+function addKitchenCounter(f: RenderFurniture, wood: THREE.Matrix4[], top: THREE.Matrix4[], dark: THREE.Matrix4[], yBase = 0): void {
+  const H = 0.86;
+  const FOOT = 0.1;
+  wood.push(compose(f.x, f.z, yBase + FOOT + (H - FOOT) / 2, f.w, H - FOOT, f.d)); // cuerpo
+  top.push(compose(f.x, f.z, yBase + H + 0.02, f.w + 0.06, 0.06, f.d + 0.06)); // encimera (sobresale)
+  const alongX = f.faceX === 0;
+  const fr = (f.faceX !== 0 ? f.w : f.d) / 2;
+  const fx = f.x + f.faceX * fr;
+  const fz = f.z + f.faceZ * fr;
+  const frontW = alongX ? f.w : f.d;
+  dark.push(compose(fx, fz, yBase + FOOT + (H - FOOT) / 2, alongX ? 0.03 : 0.02, H - FOOT - 0.08, alongX ? 0.02 : 0.03)); // junta central
+  const ho = frontW * 0.24;
+  for (const s of [-1, 1]) {
+    dark.push(compose(fx + (alongX ? ho * s : 0), fz + (alongX ? 0 : ho * s), yBase + H * 0.6, alongX ? 0.05 : 0.04, 0.12, alongX ? 0.04 : 0.05)); // tiradores
+  }
+}
+
+/** Armario alto de pared (colgado sobre la encimera): cuerpo + junta + dos tiradores. */
+function addKitchenCabinet(f: RenderFurniture, wood: THREE.Matrix4[], dark: THREE.Matrix4[], yBase = 0): void {
+  const BOTTOM = 1.5;
+  const H = 0.7;
+  wood.push(compose(f.x, f.z, yBase + BOTTOM + H / 2, f.w, H, f.d));
+  const alongX = f.faceX === 0;
+  const fr = (f.faceX !== 0 ? f.w : f.d) / 2;
+  const fx = f.x + f.faceX * fr;
+  const fz = f.z + f.faceZ * fr;
+  const frontW = alongX ? f.w : f.d;
+  dark.push(compose(fx, fz, yBase + BOTTOM + H / 2, alongX ? 0.03 : 0.02, H - 0.08, alongX ? 0.02 : 0.03)); // junta
+  const ho = frontW * 0.26;
+  for (const s of [-1, 1]) {
+    dark.push(compose(fx + (alongX ? ho * s : 0), fz + (alongX ? 0 : ho * s), yBase + BOTTOM + H * 0.3, alongX ? 0.05 : 0.04, 0.12, alongX ? 0.04 : 0.05)); // tiradores
+  }
 }
 
 /**
@@ -2569,7 +2775,7 @@ function addOfficeFurniture(f: RenderFurniture, yBase: number, K: RenderBuckets)
       addRug(f, K.rugMats, K.rugColors, yBase);
       break;
     case 'shower':
-      addShower(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats, yBase);
+      addShower(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats, K.bathMirrorMats, yBase);
       break;
     case 'bathtub':
       addBathtub(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats, yBase);
@@ -2616,6 +2822,24 @@ function addOfficeFurniture(f: RenderFurniture, yBase: number, K: RenderBuckets)
       break;
     case 'floorLamp':
       addFloorLamp(f, K.furnDarkMats, K.furnWoodMats, K.lampShades, yBase);
+      break;
+    case 'fridge':
+      addFridge(f, K.applianceMats, K.furnDarkMats, yBase);
+      break;
+    case 'stove':
+      addStove(f, K.furnWoodMats, K.counterTopMats, K.furnDarkMats, yBase);
+      break;
+    case 'oven':
+      addOven(f, K.applianceMats, K.furnWoodMats, K.furnDarkMats, yBase);
+      break;
+    case 'microwave':
+      addMicrowave(f, K.applianceMats, K.furnDarkMats, yBase);
+      break;
+    case 'kitchenCounter':
+      addKitchenCounter(f, K.furnWoodMats, K.counterTopMats, K.furnDarkMats, yBase);
+      break;
+    case 'kitchenCabinet':
+      addKitchenCabinet(f, K.furnWoodMats, K.furnDarkMats, yBase);
       break;
   }
 }

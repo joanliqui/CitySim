@@ -10,6 +10,7 @@ export interface SimStats {
   walking: number;
   waiting: number;
   inside: number;
+  sleeping: number;
 }
 
 /** Orquesta los sistemas de la simulación con paso de tiempo fijo. */
@@ -31,20 +32,23 @@ export class Simulation {
     this.pedestrianSystem = new PedestrianSystem(model, this.sidewalks, this.lights, options.pedestrians, options.seed + 2);
   }
 
-  step(dt: number, time: number): void {
+  step(dt: number, time: number, hour: number): void {
     this.vehicleSystem.step(dt, time);
-    this.pedestrianSystem.step(dt, time);
+    this.pedestrianSystem.step(dt, time, hour);
   }
 
   stats(): SimStats {
     let walking = 0;
     let waiting = 0;
     let inside = 0;
+    let sleeping = 0;
     for (const p of this.pedestrianSystem.pedestrians) {
-      if (p.state === 'inside') inside++;
-      else if (p.state === 'waiting') waiting++;
+      if (p.state === 'inside') {
+        if (p.sleeping) sleeping++;
+        else inside++;
+      } else if (p.state === 'waiting') waiting++;
       else walking++;
     }
-    return { vehicles: this.vehicleSystem.vehicles.length, walking, waiting, inside };
+    return { vehicles: this.vehicleSystem.vehicles.length, walking, waiting, inside, sleeping };
   }
 }

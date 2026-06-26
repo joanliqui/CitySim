@@ -1,7 +1,7 @@
 import { Rng } from '../../core/Rng';
 import type { HouseInterior } from '../CityModel';
 import { BuildingFactory, type CourtyardKind, type DistrictSpec, type Footprint } from './BuildingFactory';
-import { makeHouseInterior } from './interior/houseInterior';
+import { makeHouseInterior, WALL_T } from './interior/houseInterior';
 import type { HouseType } from './types/BuildingTypes';
 
 /** Casa baja con jardín y distribución interior (estancias + tabiques + muebles). */
@@ -20,6 +20,14 @@ export class HouseFactory extends BuildingFactory {
   }
 
   protected buildInterior(x: number, z: number, w: number, d: number, faceX: number, faceZ: number): HouseInterior {
-    return makeHouseInterior(x, z, w, d, faceX, faceZ);
+    // Toda casa tiene COMO MÍNIMO 3 estancias: dormitorio, baño (la más pequeña)
+    // y cocina-comedor (cocina americana en el salón de entrada). Si el interior
+    // da holgura para una cocina INDEPENDIENTE además del salón-comedor, exige una
+    // 4ª estancia y quedan separados. En casas muy estrechas (distrito denso) la
+    // subdivisión forzada puede no alcanzar el mínimo; entonces se queda con las
+    // estancias que físicamente caben.
+    const usableArea = (w - 2 * WALL_T) * (d - 2 * WALL_T);
+    const minRooms = usableArea >= 42 ? 4 : 3;
+    return makeHouseInterior(x, z, w, d, faceX, faceZ, 0, minRooms);
   }
 }

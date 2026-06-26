@@ -1,7 +1,7 @@
 import { Rng } from '../../../../core/Rng';
 import type { Furniture, InteriorWall, RoomRect } from '../types';
 import type { FurnishContext, HouseGeom } from './FurnitureFactory';
-import type { Rect } from './placement';
+import { footRect, type Rect } from './placement';
 import { furnitureFactories } from './registry';
 
 /**
@@ -53,21 +53,34 @@ export class DiningFurnisher {
     const inset = t / 2 + 0.06;
     const usable: Rect = { x0: dining.x0 + inset, x1: dining.x1 - inset, z0: dining.z0 + inset, z1: dining.z1 - inset };
 
-    const ctx: FurnishContext = { room: dining, house, usable, zones, occupied: zones.map((zn) => ({ ...zn })), bed: null, table: null, sofa: null };
+    // Esquiva el mobiliario ya colocado en esta sala (p. ej. una cocina americana):
+    // siembra las huellas de las piezas cuyo centro cae dentro de la estancia.
+    const occupied = zones.map((zn) => ({ ...zn }));
+    for (const fz of out) {
+      if (fz.x >= dining.x0 && fz.x <= dining.x1 && fz.z >= dining.z0 && fz.z <= dining.z1) occupied.push(footRect(fz));
+    }
 
-    // Receta del comedor: la mesa manda; si no cabe, la estancia no es comedor.
+    const ctx: FurnishContext = { room: dining, house, usable, zones, occupied, bed: null, table: null, sofa: null };
+    const before = out.length;
+
+    // La mesa manda en el comedor: si cabe, se monta el conjunto (mesa + alfombra
+    // debajo + sillas + aparador). Si NO cabe (sala de entrada estrecha, p. ej.
+    // cuando la cocina ocupa estancia propia), la estancia no se abandona vacía:
+    // sigue adelante y queda como sala de estar con el rincón de abajo.
     const table = furnitureFactories.diningTable.place(ctx, rng);
-    if (table.length === 0) return;
-    dining.kind = 'dining';
-    out.push(...table);
-    out.push(...furnitureFactories.rug.place(ctx, rng)); // bajo la mesa
-    out.push(...furnitureFactories.diningChair.place(ctx, rng));
-    if (rng.next() < 0.8) out.push(...furnitureFactories.sideboard.place(ctx, rng));
+    if (table.length > 0) {
+      out.push(...table);
+      out.push(...furnitureFactories.rug.place(ctx, rng)); // bajo la mesa
+      out.push(...furnitureFactories.diningChair.place(ctx, rng));
+      if (rng.next() < 0.8) out.push(...furnitureFactories.sideboard.place(ctx, rng));
+    }
 
     // Rincón de estar (salón-comedor). Cada pieza es probabilística y solo se
     // coloca si queda sitio, así que cada vivienda sale distinta. El sofá manda:
-    // si entra, el televisor se le enfrenta y la mesa de centro va delante.
-    if (rng.next() < 0.85) out.push(...furnitureFactories.sofa.place(ctx, rng));
+    // si entra, el televisor se le enfrenta y la mesa de centro va delante. Cuando
+    // no cupo la mesa de comedor, el sofá se intenta SIEMPRE para que la estancia
+    // de entrada quede como sala de estar y nunca vacía.
+    if (rng.next() < (table.length > 0 ? 0.85 : 1)) out.push(...furnitureFactories.sofa.place(ctx, rng));
     if (rng.next() < (ctx.sofa ? 0.85 : 0.4)) out.push(...furnitureFactories.tv.place(ctx, rng));
     if (ctx.sofa && rng.next() < 0.7) out.push(...furnitureFactories.coffeeTable.place(ctx, rng));
     if (rng.next() < 0.45) out.push(...furnitureFactories.armchair.place(ctx, rng));
@@ -76,6 +89,9 @@ export class DiningFurnisher {
     // Remates de adorno.
     if (rng.next() < 0.7) out.push(...furnitureFactories.pottedPlant.place(ctx, rng));
     if (rng.next() < 0.5) out.push(...furnitureFactories.floorLamp.place(ctx, rng));
+
+    // La estancia de entrada es la sala-comedor en cuanto se le coloca algo.
+    if (out.length > before) dining.kind = 'dining';
   }
 }
 

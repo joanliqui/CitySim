@@ -36,7 +36,7 @@ export class HouseRenderer implements BuildingRenderer {
             H.addRug(f, K.rugMats, K.rugColors);
             break;
           case 'shower':
-            H.addShower(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats);
+            H.addShower(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats, K.bathMirrorMats);
             break;
           case 'bathtub':
             H.addBathtub(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats);
@@ -83,6 +83,24 @@ export class HouseRenderer implements BuildingRenderer {
             break;
           case 'floorLamp':
             H.addFloorLamp(f, K.furnDarkMats, K.furnWoodMats, K.lampShades);
+            break;
+          case 'fridge':
+            H.addFridge(f, K.applianceMats, K.furnDarkMats);
+            break;
+          case 'stove':
+            H.addStove(f, K.furnWoodMats, K.counterTopMats, K.furnDarkMats);
+            break;
+          case 'oven':
+            H.addOven(f, K.applianceMats, K.furnWoodMats, K.furnDarkMats);
+            break;
+          case 'microwave':
+            H.addMicrowave(f, K.applianceMats, K.furnDarkMats);
+            break;
+          case 'kitchenCounter':
+            H.addKitchenCounter(f, K.furnWoodMats, K.counterTopMats, K.furnDarkMats);
+            break;
+          case 'kitchenCabinet':
+            H.addKitchenCabinet(f, K.furnWoodMats, K.furnDarkMats);
             break;
         }
       }
