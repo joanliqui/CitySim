@@ -1,5 +1,5 @@
 import { generateCity } from '../city/CityGenerator';
-import { apartmentCount } from '../city/CityModel';
+import { apartmentCount, type Furniture } from '../city/CityModel';
 import type * as THREE from 'three';
 import { CameraRig } from '../render/CameraRig';
 import { buildCityMesh, type DoorAnimator } from '../render/CityMesh';
@@ -18,6 +18,7 @@ import { CustomPedestrianMesh } from '../render/CustomPedestrianMesh';
 import { BuildPanel, type BuildPass } from '../ui/BuildPanel';
 import { CameraPanel } from '../ui/CameraPanel';
 import { CharacterCreator } from '../ui/CharacterCreator';
+import { FridgePopup } from '../ui/FridgePopup';
 import { Hud, type AgentDetail, type AgentInfo } from '../ui/Hud';
 import { Picking, type PickResult } from '../ui/Picking';
 import { RadialMenu } from '../ui/RadialMenu';
@@ -251,6 +252,14 @@ export class App {
         run: ({ interactable }) => console.log('[Interacción] Abrir armario', interactable.id, interactable.data),
       },
     ]);
+    const fridgePopup = new FridgePopup(hudRoot);
+    actions.register('fridge', (interactable) => {
+      const data = interactable.data as { building?: string; furniture?: Furniture } | undefined;
+      const store = data?.furniture?.food;
+      if (!store) return [];
+      const title = data?.building ? `Nevera · ${data.building}` : 'Nevera';
+      return [{ id: 'open', label: 'Abrir', icon: '🧊', run: () => fridgePopup.open(store, title) }];
+    });
     actions.register('floorLamp', (interactable) => {
       const i = (interactable.data as { index: number }).index;
       const on = this.floorLamps.isOn(i);
@@ -364,12 +373,13 @@ export class App {
       inside: `Dentro de ${dest}`,
     };
     const energyPct = Math.round(p.energy);
-    const status = p.sleeping ? 'Durmiendo' : statusMap[p.state];
+    const needs = `🍽️ ${Math.round(p.food)}% · 💧 ${Math.round(p.hydration)}%`;
+    const status = p.eating ? 'Comiendo' : p.sleeping ? 'Durmiendo' : statusMap[p.state];
     const detail = p.sleeping
-      ? `Durmiendo · energía ${energyPct}%`
+      ? `Durmiendo · energía ${energyPct}% · ${needs}`
       : p.state === 'inside'
-        ? `Energía ${energyPct}% · saldrá en ${Math.max(0, p.timer).toFixed(0)} s`
-        : `Destino: ${dest} · energía ${energyPct}%`;
+        ? `Energía ${energyPct}% · ${needs} · saldrá en ${Math.max(0, p.timer).toFixed(0)} s`
+        : `Destino: ${dest} · energía ${energyPct}% · ${needs}`;
     return {
       icon: '🚶',
       title: `Peatón #${p.id + 1}`,
@@ -377,7 +387,11 @@ export class App {
       detail,
       details: homeDetails(p),
       stats: BIG_FIVE.map((t) => ({ label: t.label, value: p.personality[t.id] })),
-      actions: [{ id: 'go-home', label: '🏠 Ir a casa' }],
+      // "Comer" solo si está despierto (dormido no puede ir a comer).
+      actions: [
+        { id: 'go-home', label: '🏠 Ir a casa' },
+        ...(p.sleeping ? [] : [{ id: 'eat', label: '🍽️ Comer' }]),
+      ],
     };
   }
 
@@ -385,6 +399,7 @@ export class App {
   private runAgentAction(id: string): void {
     if (!this.selected || this.selected.kind !== 'pedestrian') return;
     if (id === 'go-home') this.sim.pedestrianSystem.goHome(this.selected.index);
+    else if (id === 'eat') this.sim.pedestrianSystem.goEat(this.selected.index);
   }
 
   /** Utilidad de depuración: coloca la cámara mirando a un punto. */

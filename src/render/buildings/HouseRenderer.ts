@@ -36,7 +36,7 @@ export class HouseRenderer implements BuildingRenderer {
             H.addRug(f, K.rugMats, K.rugColors);
             break;
           case 'shower':
-            H.addShower(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats, K.bathMirrorMats);
+            H.addShower(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats, K.bathMirrorMats, K.showerMetalMats, K.showerHeadMats, K.showerHeadColors);
             break;
           case 'bathtub':
             H.addBathtub(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats);
@@ -73,7 +73,7 @@ export class HouseRenderer implements BuildingRenderer {
             H.addUpholstered(f, K.upholsteryMats, K.upholsteryColors, K.furnDarkMats);
             break;
           case 'tv':
-            H.addTv(f, K.furnWoodMats, K.furnDarkMats);
+            H.addTv(f, K.tvStandMats, K.tvStandColors, K.furnDarkMats, K.tvBezelMats, K.tvScreenMats);
             break;
           case 'coffeeTable':
             H.addCoffeeTable(f, K.furnWoodMats, K.furnDarkMats);

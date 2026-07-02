@@ -1,5 +1,6 @@
 import { Rng } from '../../../core/Rng';
 import { rng2 } from '../../../core/seededRng';
+import { makeFridgeStore, stockFridge } from '../../food/Fridge';
 import type { Furniture, HouseInterior, InteriorWall, RoomRect } from './types';
 import { bathroomFurnisher } from './furniture/BathroomFurnisher';
 import { bedroomFurnisher } from './furniture/BedroomFurnisher';
@@ -174,7 +175,23 @@ export function makeHouseInterior(
   kitchenFurnisher.furnish(rooms, walls, { x, z, w, d, t: WALL_T, faceX, faceZ }, rng, furniture);
   diningFurnisher.furnish(rooms, walls, { x, z, w, d, t: WALL_T, faceX, faceZ }, rng, furniture);
 
+  // Llena las neveras de comida. Va DESPUÉS del amueblado y con un RNG propio
+  // (seeded por posición) para no alterar el orden de colocación de los muebles.
+  stockFridges(furniture, rng2(Math.round(x * 10) * 31 + Math.round(z * 10) + seedOffset * 1000003 + 777));
+
   return { wallT: WALL_T, rooms, walls, furniture };
+}
+
+/**
+ * Da a cada nevera de la vivienda un almacén con capacidad limitada y lo llena de
+ * comida variada. La capacidad varía un poco por nevera (RNG seeded).
+ */
+function stockFridges(furniture: Furniture[], rng: Rng): void {
+  for (const f of furniture) {
+    if (f.kind !== 'fridge') continue;
+    f.food = makeFridgeStore(rng.range(80, 120));
+    stockFridge(f.food, rng);
+  }
 }
 
 /** Hueco de puerta en el tramo de la pared más alejado de las uniones en T. */

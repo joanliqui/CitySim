@@ -7,9 +7,13 @@ import {
   stairWaypoints,
   type StairPoint,
 } from '../city/buildings/interior/stairGeometry';
+import { interiorWalkPath } from '../city/buildings/interior/interiorNav';
 import type { PathStep, SidewalkGraph } from '../city/SidewalkGraph';
 import { Rng } from '../core/Rng';
 import type { Leg, Pedestrian } from './agents';
+import { FOOD_CATALOG } from '../city/food/FoodTypes';
+import type { FridgeStore } from '../city/food/Fridge';
+import { drainNeed, FOOD, HYDRATION } from './needs';
 import { DEFAULT_PERSONALITY, randomPersonality, type Personality } from './personality';
 import {
   drainRate,
@@ -37,6 +41,13 @@ interface HomeAssignment {
   homeUnit: number;
   socialClass: SocialClass;
 }
+
+/** Umbral de alimentación por debajo del cual el peatón despierto va a comer. */
+const EAT_THRESHOLD = 60;
+/** Segundos para acercarse a la nevera / volver al sitio (anima `eatApproach`). */
+const EAT_MOVE_TIME = 0.8;
+/** Segundos que dura el acto de comer una vez frente a la nevera. */
+const EAT_TIME = 2.5;
 
 const CROSS_SPEED = 2.4; // los peatones cruzan con prisa
 const CORNER_BLEND = 2.2; // metros suavizados alrededor de cada giro
@@ -85,7 +96,13 @@ export class PedestrianSystem {
         building,
         timer: this.rng.range(0.5, 18),
         energy: this.rng.range(70, 100),
+        food: this.rng.range(60, 100),
+        hydration: this.rng.range(60, 100),
         sleeping: false,
+        eating: false,
+        wantsToEat: false,
+        eatTimer: 0,
+        eatApproach: 0,
         recline: 0,
         prevRecline: 0,
         facadeDoorOpen: false,
@@ -131,7 +148,13 @@ export class PedestrianSystem {
       building,
       timer: 1,
       energy: this.rng.range(70, 100),
+      food: this.rng.range(60, 100),
+      hydration: this.rng.range(60, 100),
       sleeping: false,
+      eating: false,
+      wantsToEat: false,
+      eatTimer: 0,
+      eatApproach: 0,
       recline: 0,
       prevRecline: 0,
       facadeDoorOpen: false,
@@ -171,6 +194,21 @@ export class PedestrianSystem {
     }
 
     return this.walkHome(ped);
+  }
+
+  /**
+   * Ordena al peatón ir a comer a la nevera de su casa, aunque no tenga hambre.
+   * Solo si está despierto. Si ya está en casa, comerá en el próximo paso; si no,
+   * se encamina a casa y come al llegar. Devuelve false si está dormido.
+   */
+  goEat(index: number): boolean {
+    const ped = this.pedestrians[index];
+    if (!ped || ped.sleeping) return false;
+    if (ped.eating) return true; // ya está comiendo
+    ped.wantsToEat = true;
+    // Si no está dentro de su casa, encamínalo; `stepInside` lo hará comer al llegar.
+    if (!(ped.state === 'inside' && ped.building === ped.home)) return this.goHome(index);
+    return true;
   }
 
   /** Reencamina a un peatón que va por la calle hacia su hogar desde su posición. */
@@ -363,13 +401,33 @@ export class PedestrianSystem {
         pushPath(legs, [prev, ...wp], f === 1 ? 'enter' : 'stairs', 'stairs');
         prev = wp[wp.length - 1];
       }
-      // Del rellano superior a la vivienda.
-      legs.push(makeLeg(prev.x, prev.z, target.x, target.z, 'unit', prev.y, target.y));
+      // Del rellano superior a la vivienda, navegando por el interior.
+      const dwelling = oi.dwellings[ped.homeUnit - 1];
+      const unitPath = dwelling
+        ? interiorWalkPath(dwelling, prev.x, prev.z, target.x, target.z)
+        : [{ x: target.x, z: target.z }];
+      let unitPrev = prev;
+      for (let k = 0; k < unitPath.length; k++) {
+        const wp = unitPath[k];
+        legs.push(makeLeg(unitPrev.x, unitPrev.z, wp.x, wp.z, 'unit', unitPrev.y, target.y));
+        unitPrev = { x: wp.x, z: wp.z, y: target.y };
+      }
       return;
     }
 
-    // Planta baja: de la aproximación al punto interior.
-    legs.push(makeLeg(to.approach.x, to.approach.z, target.x, target.z, 'enter', 0, target.y));
+    // Planta baja: navega por el interior respetando paredes y puertas.
+    if (to.interior) {
+      const path = interiorWalkPath(to.interior, to.approach.x, to.approach.z, target.x, target.z);
+      let prevPt = { x: to.approach.x, z: to.approach.z };
+      for (let k = 0; k < path.length; k++) {
+        const wp = path[k];
+        const toY = k === path.length - 1 ? target.y : 0;
+        legs.push(makeLeg(prevPt.x, prevPt.z, wp.x, wp.z, 'enter', 0, toY));
+        prevPt = wp;
+      }
+    } else {
+      legs.push(makeLeg(to.approach.x, to.approach.z, target.x, target.z, 'enter', 0, target.y));
+    }
   }
 
   /**
@@ -383,10 +441,19 @@ export class PedestrianSystem {
     if (isApartment) {
       const oi = from.officeInterior!;
       const shaft = officeShaft(from, oi.core);
-      // De la vivienda al rellano de su planta (arriba del todo).
+      // De la vivienda al rellano de su planta, navegando por el interior.
       const topWp = stairWaypoints(shaft, oi.floorH, ped.homeUnit);
       const top = topWp[topWp.length - 1];
-      legs.push(makeLeg(target.x, target.z, top.x, top.z, 'unit', target.y, top.y));
+      const exitDwelling = oi.dwellings[ped.homeUnit - 1];
+      const unitExitPath = exitDwelling
+        ? interiorWalkPath(exitDwelling, target.x, target.z, top.x, top.z)
+        : [{ x: top.x, z: top.z }];
+      let unitExitPrev = { x: target.x, z: target.z };
+      for (let k = 0; k < unitExitPath.length; k++) {
+        const wp = unitExitPath[k];
+        legs.push(makeLeg(unitExitPrev.x, unitExitPrev.z, wp.x, wp.z, 'unit', target.y, top.y));
+        unitExitPrev = wp;
+      }
       // Baja planta a planta (waypoints invertidos).
       for (let f = ped.homeUnit; f >= 1; f--) {
         const wp = stairWaypoints(shaft, oi.floorH, f).slice().reverse();
@@ -395,6 +462,16 @@ export class PedestrianSystem {
       // Del rellano de planta baja a la puerta de calle.
       const base = stairWaypoints(shaft, oi.floorH, 1)[0];
       legs.push(makeLeg(base.x, base.z, from.approach.x, from.approach.z, 'enter', base.y, 0));
+    } else if (from.interior) {
+      // Del punto interior a la aproximación, navegando por el interior.
+      const exitPath = interiorWalkPath(from.interior, target.x, target.z, from.approach.x, from.approach.z);
+      let prevPt = { x: target.x, z: target.z };
+      for (let k = 0; k < exitPath.length; k++) {
+        const wp = exitPath[k];
+        const fromY = k === 0 ? target.y : 0;
+        legs.push(makeLeg(prevPt.x, prevPt.z, wp.x, wp.z, 'enter', fromY, 0));
+        prevPt = wp;
+      }
     } else {
       // Del punto interior a la aproximación junto a la fachada.
       legs.push(makeLeg(target.x, target.z, from.approach.x, from.approach.z, 'enter', target.y, 0));
@@ -435,9 +512,16 @@ export class PedestrianSystem {
       // día y por la noche se va a dormir.
       if (!ped.sleeping) ped.energy = Math.max(0, ped.energy - dt * drainRate(ped.personality));
 
-      // De noche, quien va por la calle hacia un destino que no es su casa se
-      // redirige a casa (los que ya están dentro lo deciden en stepInside).
-      if (isNight(hour) && ped.state === 'walking' && ped.building !== ped.home) {
+      // Alimentación e hidratación bajan de forma continua (también durmiendo),
+      // por tramos de velocidad (ver `needs.ts`). Hoy ambos son lineales.
+      ped.food = drainNeed(ped.food, FOOD, dt);
+      ped.hydration = drainNeed(ped.hydration, HYDRATION, dt);
+
+      // Quien va por la calle hacia un destino que no es su casa se redirige a
+      // casa si es de noche (a dormir) o si tiene hambre estando despierto (a
+      // comer). Los que ya están dentro lo deciden en stepInside.
+      const wantsHome = isNight(hour) || (!ped.sleeping && (ped.food < EAT_THRESHOLD || ped.wantsToEat));
+      if (wantsHome && ped.state === 'walking' && ped.building !== ped.home) {
         this.walkHome(ped);
       }
 
@@ -477,10 +561,38 @@ export class PedestrianSystem {
 
     // (La energía ya se ha descontado en el bucle principal, para todos los estados.)
 
+    // Comiendo: se acerca a la nevera, come y, al terminar, vuelve a su sitio.
+    if (ped.eating) {
+      this.eat(ped, dt);
+      return;
+    }
+
     // Si quedó tumbado (acaba de despertar), se incorpora antes de hacer nada más.
     if (ped.recline > 0) {
       this.getUp(ped, dt);
       return;
+    }
+
+    // Si acaba de comer (quedó junto a la nevera), vuelve a su sitio antes de seguir.
+    if (ped.eatApproach > 0) {
+      this.returnFromFridge(ped, dt);
+      return;
+    }
+
+    // Hambre (estando despierto) o comer ordenado por el usuario (`wantsToEat`):
+    // va a su nevera a comer. Si está en casa y hay comida, empieza a comer; si
+    // está fuera, vuelve a casa primero.
+    if (ped.food < EAT_THRESHOLD || ped.wantsToEat) {
+      if (ped.building === ped.home) {
+        if (this.startEating(ped)) {
+          ped.wantsToEat = false;
+          return;
+        }
+        ped.wantsToEat = false; // en casa pero sin comida en la nevera: no puede comer
+      } else if (this.planTo(ped, ped.building, ped.home)) {
+        ped.state = 'exiting';
+        return;
+      }
     }
 
     // De noche nadie sale de paseo: o está en casa (y se acuesta al cansarse) o
@@ -524,6 +636,101 @@ export class PedestrianSystem {
     ped.x += (sp.x - ped.x) * k;
     ped.z += (sp.z - ped.z) * k;
     ped.y += (sp.y - ped.y) * k;
+  }
+
+  /**
+   * Empieza a comer: requiere estar en casa con una nevera que tenga comida.
+   * Devuelve false si no hay nevera o está vacía (entonces sigue con hambre).
+   */
+  private startEating(ped: Pedestrian): boolean {
+    const target = this.fridgeTarget(ped.home, ped.homeUnit);
+    if (!target || target.store.items.length === 0) return false;
+    ped.eating = true;
+    ped.eatTimer = EAT_TIME;
+    return true;
+  }
+
+  /**
+   * Acto de comer: primero se desliza hasta la nevera (`eatApproach` → 1); ya
+   * frente a ella, agota el temporizador y entonces consume comida de la nevera
+   * y recupera alimentación. Después deja de comer (`returnFromFridge` lo devuelve).
+   */
+  private eat(ped: Pedestrian, dt: number): void {
+    const target = this.fridgeTarget(ped.home, ped.homeUnit);
+    if (!target) {
+      ped.eating = false;
+      return;
+    }
+    if (ped.eatApproach < 1) {
+      ped.eatApproach = Math.min(1, ped.eatApproach + dt / EAT_MOVE_TIME);
+      const k = Math.min(1, dt / EAT_MOVE_TIME);
+      ped.x += (target.x - ped.x) * k;
+      ped.z += (target.z - ped.z) * k;
+      ped.y += (target.y - ped.y) * k;
+      ped.heading = lerpAngle(ped.heading, target.heading, k);
+      return;
+    }
+    // Frente a la nevera: come durante `EAT_TIME` y al terminar consume y para.
+    ped.x = target.x;
+    ped.z = target.z;
+    ped.y = target.y;
+    ped.heading = target.heading;
+    ped.eatTimer -= dt;
+    if (ped.eatTimer <= 0) {
+      this.consumeFood(ped, target.store);
+      ped.eating = false;
+    }
+  }
+
+  /** Tras comer, vuelve deslizándose a su punto interior de pie (`eatApproach` → 0). */
+  private returnFromFridge(ped: Pedestrian, dt: number): void {
+    ped.eatApproach = Math.max(0, ped.eatApproach - dt / EAT_MOVE_TIME);
+    const sp = this.standTarget(ped.home, ped.homeUnit, true);
+    const k = Math.min(1, dt / EAT_MOVE_TIME);
+    ped.x += (sp.x - ped.x) * k;
+    ped.z += (sp.z - ped.z) * k;
+    ped.y += (sp.y - ped.y) * k;
+  }
+
+  /**
+   * Consume comida de la nevera hasta saciar la alimentación (≈100) o vaciarla.
+   * Cada alimento aporta su `nourishment` (y de paso algo de `hydration`).
+   */
+  private consumeFood(ped: Pedestrian, store: FridgeStore): void {
+    while (ped.food < 100 && store.items.length > 0) {
+      const item = store.items.pop()!;
+      const def = FOOD_CATALOG[item.kind];
+      ped.food = Math.min(100, ped.food + def.nourishment);
+      ped.hydration = Math.min(100, ped.hydration + def.hydration);
+    }
+  }
+
+  /**
+   * Punto frente a la nevera del hogar (medio metro por delante, mirándola) más
+   * su almacén. `null` si el hogar no tiene nevera con almacén.
+   */
+  private fridgeTarget(
+    b: Building,
+    homeUnit: number,
+  ): { x: number; z: number; y: number; heading: number; store: FridgeStore } | null {
+    let furniture: readonly Furniture[] | undefined;
+    let yBase = 0;
+    if (b.officeInterior && homeUnit > 0) {
+      furniture = b.officeInterior.dwellings[homeUnit - 1]?.furniture;
+      yBase = floorSurfaceY(homeUnit, b.officeInterior.floorH);
+    } else if (b.interior) {
+      furniture = b.interior.furniture;
+    }
+    const fridge = furniture?.find((f) => f.kind === 'fridge');
+    if (!fridge?.food) return null;
+    const STAND = 0.5; // se planta medio metro por delante de la nevera
+    return {
+      x: fridge.x + fridge.faceX * STAND,
+      z: fridge.z + fridge.faceZ * STAND,
+      y: yBase,
+      heading: Math.atan2(-fridge.faceX, -fridge.faceZ), // mirando hacia la nevera
+      store: fridge.food,
+    };
   }
 
   /**

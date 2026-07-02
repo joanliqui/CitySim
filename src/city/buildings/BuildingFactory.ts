@@ -16,6 +16,7 @@ import {
   type ClearanceCircle,
   type SideTag,
 } from './placement';
+import type { ShopSubFactory } from './shops/ShopSubFactory';
 import type { BuildingType } from './types/BuildingTypes';
 
 /**
@@ -109,15 +110,40 @@ export abstract class BuildingFactory {
   }
 
   /**
+   * Hook de subtipo: elige una `ShopSubFactory` que sustituye footprint/fill/
+   * etiqueta/interior en `place()`. Por defecto `null` (casas, oficinas): NO
+   * consume el RNG, así su secuencia no cambia. Solo `ShopFactory` lo sobreescribe.
+   */
+  protected pickVariant(_rng: Rng): ShopSubFactory | null {
+    return null;
+  }
+
+  /**
    * Construye un edificio en el contexto dado, o devuelve null si no encaja.
    * Orden de consumo del RNG principal (debe mantenerse para reproducibilidad):
-   * footprint (front, depth, h) → along (solo si hay holgura) → colorIdx.
+   * [variante (solo tiendas)] → footprint (front, depth, h) → along (solo si hay
+   * holgura) → colorIdx.
    */
   build(rng: Rng, ctx: BuildContext): Building | null {
+    return this.place(rng, ctx, this.pickVariant(rng));
+  }
+
+  /**
+   * Cuerpo compartido de colocación. Si `variant` no es null (tiendas), toma de
+   * ella footprint/fill/etiqueta/interior en vez de los hooks propios. Con
+   * `skipOverlapBuildings` se omite la comprobación de solape con otros edificios
+   * (para el pase especial del supermercado, que demuele lo que pisa después).
+   */
+  protected place(
+    rng: Rng,
+    ctx: BuildContext,
+    variant: ShopSubFactory | null,
+    skipOverlapBuildings = false,
+  ): Building | null {
     const { side, center, segLen, maxDepth, roadLine, buildable, clearances, buildings, typeCount, spec } = ctx;
 
-    const fp = this.footprint(rng, spec);
-    const fill = this.fillFactors();
+    const fp = variant ? variant.footprint(rng, spec) : this.footprint(rng, spec);
+    const fill = variant ? variant.fillFactors() : this.fillFactors();
     const front = Math.min(Math.max(fp.front, segLen * fill.front), segLen - 1.0);
     const depth = Math.min(Math.max(fp.depth, maxDepth * fill.depth), maxDepth);
     if (front < 4 || depth < 2.5) return null;
@@ -167,16 +193,18 @@ export abstract class BuildingFactory {
 
     if (!insideBuildableRect(x, z, w, d, buildable)) return null;
     if (overlapsClearance(x, z, w, d, clearances)) return null;
-    if (overlapsBuilding(x, z, w, d, buildings)) return null;
+    if (!skipOverlapBuildings && overlapsBuilding(x, z, w, d, buildings)) return null;
 
     typeCount[this.type]++;
     const approachDist = CORRIDOR_HALF + 0.6;
-    const interior = this.buildInterior(x, z, w, d, faceX, faceZ);
-    const officeInterior = this.buildOfficeInterior(x, z, w, d, fp.h, faceX, faceZ);
+    const interior = variant ? undefined : this.buildInterior(x, z, w, d, faceX, faceZ);
+    const officeInterior = variant ? undefined : this.buildOfficeInterior(x, z, w, d, fp.h, faceX, faceZ);
+    const marketInterior = variant?.buildMarketInterior?.(x, z, w, d, faceX, faceZ);
     return {
       id: 0,
       type: this.type,
-      name: `${this.label} ${typeCount[this.type]}`,
+      shopKind: variant?.shopKind,
+      name: `${variant?.label ?? this.label} ${typeCount[this.type]}`,
       x,
       z,
       w,
@@ -193,6 +221,7 @@ export abstract class BuildingFactory {
       doorNode: -1,
       interior,
       officeInterior,
+      marketInterior,
     };
   }
 }

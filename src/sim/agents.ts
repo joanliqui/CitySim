@@ -86,8 +86,20 @@ export interface Pedestrian {
   timer: number;
   /** Energía/vitalidad (0–100): baja durante el día, se recupera durmiendo. */
   energy: number;
+  /** Alimentación (0–100): 100 = saciado, 0 = hambriento. Baja con el tiempo. */
+  food: number;
+  /** Hidratación (0–100): 100 = hidratado, 0 = deshidratado. Baja con el tiempo. */
+  hydration: number;
   /** Está tumbado en su cama durmiendo (recupera energía). */
   sleeping: boolean;
+  /** Está comiendo en la nevera de su casa (consume comida, recupera alimentación). */
+  eating: boolean;
+  /** Intención de ir a comer (p. ej. ordenada por el usuario), aunque no tenga hambre. */
+  wantsToEat: boolean;
+  /** Cuenta atrás de la acción de comer una vez frente a la nevera. */
+  eatTimer: number;
+  /** Posición durante la comida: 0 = en su sitio, 1 = frente a la nevera (anima la ida/vuelta). */
+  eatApproach: number;
   /** Postura: 0 = de pie, 1 = tumbado en la cama (anima la transición). */
   recline: number;
   prevRecline: number;

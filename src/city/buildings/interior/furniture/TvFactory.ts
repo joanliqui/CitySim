@@ -39,7 +39,7 @@ export class TvFactory implements FurnitureFactory {
       }
       const r: Rect = { x0: x - w / 2, x1: x + w / 2, z0: z - d / 2, z1: z + d / 2 };
       if (isFree(r, U, ctx.occupied)) {
-        const tv: Furniture = { kind: 'tv', x, z, w, d, faceX: -fx, faceZ: -fz, variant: rng.int(0, 3) };
+        const tv: Furniture = { kind: 'tv', x, z, w, d, faceX: -fx, faceZ: -fz, variant: rng.int(0, 4) };
         ctx.occupied.push(footRect(tv));
         return [tv];
       }
@@ -48,7 +48,7 @@ export class TvFactory implements FurnitureFactory {
     // Sin sofá (o pared ocupada): contra cualquier pared libre.
     const f = placeAgainstWall(U, ctx.occupied, LEN, DEP, 'tv', rng);
     if (!f) return [];
-    f.variant = rng.int(0, 3);
+    f.variant = rng.int(0, 4);
     ctx.occupied.push(footRect(f));
     return [f];
   }

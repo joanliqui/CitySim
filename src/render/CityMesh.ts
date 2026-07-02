@@ -33,6 +33,8 @@ const BUILDING_PALETTES: Record<string, number[]> = {
   house: [0xe8c8a9, 0xd9a38b, 0xc9d4b0, 0xe6d9b8, 0xd4b8c4, 0xbfd0d9],
   shop: [0xf2b3a7, 0xa7d3f2, 0xf2e3a7, 0xb8e0c2, 0xe0b8d9, 0xf2cfa7],
   office: [0x9fb4c7, 0x8da6bd, 0xb0bec9, 0xa3b8b0, 0x97a8c4, 0xb5c2d6],
+  // Supermercado: tonos claros de nave comercial (blancos rotos y grises cálidos).
+  supermarket: [0xeceae4, 0xe4dccb, 0xdfe3e6, 0xe8e2d4, 0xd8dee2, 0xeae4da],
 };
 const AWNING_COLORS = [0xd94f4f, 0x3f7fbf, 0x3fa66b, 0xe0a030, 0x9b59b6, 0xe06c9f];
 const ROOF_COLORS = [0x914f3e, 0x6f7880, 0x40515f, 0xb06a45, 0x596567, 0x8a5a44];
@@ -40,6 +42,8 @@ const SIGN_COLORS = [0x284b63, 0x7a3b45, 0x326b52, 0x8b5a2b, 0x4d4b82, 0x7a456a]
 const RUG_COLORS = [0xb0573f, 0x4f6f8f, 0x3f7f5f, 0x9a7b3f, 0x7a4f6f];
 const UPHOLSTERY_COLORS = [0x6f7884, 0x4f6478, 0x55705a, 0x9a6b4f, 0xb59448, 0x7a5566, 0x8a8f96];
 const BOOK_COLORS = [0x9a4b3f, 0x3f6f8f, 0x4f8f5f, 0xc7a23f, 0x6a4f8f, 0xb56a3f, 0x4a4a55];
+/** Mueble de TV: un tono por variante (madera cálida, nórdico claro, grafito, blanco). */
+const TV_STAND_COLORS = [0x8a6a45, 0xc9bda8, 0x2e2e33, 0xd8d3c8];
 /** Altura máxima del hueco de puerta (calle e interiores). Holgada sobre la
  *  estatura del peatón para que pase con margen. */
 const DOOR_TOP_MAX = 2.45;
@@ -1355,6 +1359,7 @@ function addBuildings(
   const awningColors: THREE.Color[] = [];
   const signMats: THREE.Matrix4[] = [];
   const signColors: THREE.Color[] = [];
+  const marketGlassMats: THREE.Matrix4[] = []; // cristal transparente de puertas/escaparate del súper
   const doorMats: THREE.Matrix4[] = [];
   const windowMats: THREE.Matrix4[] = []; // cristal
   const windowFrameMats: THREE.Matrix4[] = []; // marco + montantes + antepecho
@@ -1387,12 +1392,19 @@ function addBuildings(
   // Mobiliario auxiliar: madera (mesitas/armarios/cómodas), oscuro (tiradores) y alfombras.
   const furnWoodMats: THREE.Matrix4[] = [];
   const furnDarkMats: THREE.Matrix4[] = [];
+  const tvStandMats: THREE.Matrix4[] = []; // mueble de TV (color por instancia, por variante)
+  const tvStandColors: THREE.Color[] = [];
+  const tvBezelMats: THREE.Matrix4[] = []; // marco gris de la pantalla
+  const tvScreenMats: THREE.Matrix4[] = []; // pantalla negra, hundida respecto al marco
   const rugMats: THREE.Matrix4[] = [];
   const rugColors: THREE.Color[] = [];
   const bathCeramicMats: THREE.Matrix4[] = [];
   const bathDarkMats: THREE.Matrix4[] = [];
   const bathGlassMats: THREE.Matrix4[] = [];
   const bathMirrorMats: THREE.Matrix4[] = [];
+  const showerMetalMats: THREE.Matrix4[] = []; // palo/herrajes de la columna de ducha (gris metálico)
+  const showerHeadMats: THREE.Matrix4[] = []; // rociador de ducha (color por instancia)
+  const showerHeadColors: THREE.Color[] = [];
   const bathWoodMats: THREE.Matrix4[] = [];
   const bathTowelMats: THREE.Matrix4[] = [];
   const bathTowelColors: THREE.Color[] = [];
@@ -1425,12 +1437,13 @@ function addBuildings(
     parapetMats, roofBoxMats, roofTankMats,
     awningMats, awningColors,
     signMats, signColors,
+    marketGlassMats,
     windowMats, windowFrameMats,
     balconySlabMats, balconyRailMats, corniceMats,
     partitionMats, floorMats,
     bedFrameMats, bedMattressMats, bedBlanketMats, bedPillowMats, bedHeadboardMats,
-    furnWoodMats, furnDarkMats, rugMats, rugColors,
-    bathCeramicMats, bathDarkMats, bathGlassMats, bathMirrorMats, bathWoodMats, bathTowelMats, bathTowelColors,
+    furnWoodMats, furnDarkMats, tvStandMats, tvStandColors, tvBezelMats, tvScreenMats, rugMats, rugColors,
+    bathCeramicMats, bathDarkMats, bathGlassMats, bathMirrorMats, showerMetalMats, showerHeadMats, showerHeadColors, bathWoodMats, bathTowelMats, bathTowelColors,
     applianceMats, counterTopMats,
     plantPotMats, plantLeafMats,
     upholsteryMats, upholsteryColors, bookMats, bookColors, lampShades,
@@ -1502,6 +1515,10 @@ function addBuildings(
   // Mobiliario auxiliar: cuerpos de madera, herrajes oscuros y alfombras.
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x8a6a45 }), furnWoodMats, { castShadow: true, receiveShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x33271a }), furnDarkMats, { castShadow: true }));
+  // Mueble de TV (color por variante) y pantalla: marco gris + panel negro hundido.
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), tvStandMats, { castShadow: true, receiveShadow: true, colors: tvStandColors }));
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x55585e }), tvBezelMats, { castShadow: true }));
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x050608 }), tvScreenMats, { castShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), rugMats, { receiveShadow: true, colors: rugColors }));
   // Plantas de interior: maceta de terracota y follaje verde.
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xb5613a }), plantPotMats, { castShadow: true, receiveShadow: true }));
@@ -1518,6 +1535,9 @@ function addBuildings(
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x5d6870 }), bathDarkMats, { castShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xaad6e3, transparent: true, opacity: 0.34 }), bathGlassMats));
   group.add(instanced(unitBox, new THREE.MeshStandardMaterial({ color: 0xb8d2dc, metalness: 0.45, roughness: 0.18 }), bathMirrorMats));
+  // Columna de ducha: herrajes gris metálico; rociador con color por instancia (negro/blanco/acero).
+  group.add(instanced(unitBox, new THREE.MeshStandardMaterial({ color: 0x8c9298, metalness: 0.6, roughness: 0.4 }), showerMetalMats, { castShadow: true }));
+  group.add(instanced(unitBox, new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.4, roughness: 0.45 }), showerHeadMats, { castShadow: true, colors: showerHeadColors }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x8b623d }), bathWoodMats, { castShadow: true, receiveShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), bathTowelMats, { castShadow: true, colors: bathTowelColors }));
   // Cocina: electrodomésticos de acero claro y encimeras de piedra clara.
@@ -1563,6 +1583,8 @@ function addBuildings(
   roofGroup.add(instanced(new THREE.CylinderGeometry(0.5, 0.5, 1, 10), new THREE.MeshLambertMaterial({ color: 0x707b80 }), roofTankMats, { castShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), awningMats, { colors: awningColors }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), signMats, { colors: signColors }));
+  // Cristal de puertas/escaparate del supermercado: translúcido de verdad.
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xbfe0ea, transparent: true, opacity: 0.28 }), marketGlassMats));
   const doorMesh = instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x4a3b2f }), doorMats);
   group.add(doorMesh);
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x6b6258 }), balconySlabMats, { castShadow: true }));
@@ -2012,16 +2034,67 @@ function addUpholstered(f: RenderFurniture, uph: THREE.Matrix4[], uphColors: THR
   }
 }
 
-/** Televisor: mueble bajo + pantalla plana orientada al frente (`faceX/faceZ`). */
-function addTv(f: RenderFurniture, wood: THREE.Matrix4[], dark: THREE.Matrix4[], yBase = 0): void {
-  const STAND = 0.44; // alto del mueble
-  wood.push(compose(f.x, f.z, yBase + STAND / 2, f.w, STAND, f.d)); // mueble bajo
+/**
+ * Televisor: mueble bajo (variedad de forma/color por `variant`) + pantalla
+ * plana orientada al frente (`faceX/faceZ`): marco gris con panel negro
+ * ligeramente hundido respecto al marco.
+ */
+function addTv(
+  f: RenderFurniture,
+  stand: THREE.Matrix4[],
+  standColors: THREE.Color[],
+  dark: THREE.Matrix4[],
+  bezel: THREE.Matrix4[],
+  screen: THREE.Matrix4[],
+  yBase = 0,
+): void {
+  const variant = (f.variant ?? 0) % TV_STAND_COLORS.length;
+  const standColor = new THREE.Color(TV_STAND_COLORS[variant]);
   const faceAxisX = f.faceX !== 0;
-  const width = (faceAxisX ? f.d : f.w) * 0.82; // ancho de la pantalla
-  // Pantalla algo retrasada hacia el fondo del mueble.
-  const sx = f.x - f.faceX * (f.w / 2 - 0.05);
-  const sz = f.z - f.faceZ * (f.d / 2 - 0.05);
-  dark.push(compose(sx, sz, yBase + STAND + 0.32, faceAxisX ? 0.05 : width, 0.5, faceAxisX ? width : 0.05));
+  let standH = 0.44;
+
+  if (variant === 1) {
+    // Nórdico: tablero fino sobre cuatro patas finas oscuras.
+    const topH = 0.07;
+    standH = 0.4;
+    stand.push(compose(f.x, f.z, yBase + standH - topH / 2, f.w, topH, f.d));
+    standColors.push(standColor);
+    const legH = standH - topH;
+    const ix = f.w / 2 - 0.08;
+    const iz = f.d / 2 - 0.08;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      dark.push(compose(f.x + sx * ix, f.z + sz * iz, yBase + legH / 2, 0.05, legH, 0.05));
+    }
+  } else if (variant === 2) {
+    // Consola con zócalo oscuro a media altura.
+    standH = 0.48;
+    stand.push(compose(f.x, f.z, yBase + standH / 2, f.w, standH, f.d));
+    standColors.push(standColor);
+    dark.push(compose(f.x, f.z, yBase + 0.05, f.w * 0.98, 0.1, f.d * 0.98));
+  } else if (variant === 3) {
+    // Columna alta y estrecha.
+    standH = 0.6;
+    const narrowW = faceAxisX ? f.w : f.w * 0.72;
+    const narrowD = faceAxisX ? f.d * 0.72 : f.d;
+    stand.push(compose(f.x, f.z, yBase + standH / 2, narrowW, standH, narrowD));
+    standColors.push(standColor);
+  } else {
+    // Consola baja y ancha (clásica).
+    stand.push(compose(f.x, f.z, yBase + standH / 2, f.w, standH, f.d));
+    standColors.push(standColor);
+  }
+
+  // Pantalla hacia el frente del mueble (cara visible desde el sofá): marco
+  // gris de ancho completo + panel negro más estrecho, un poco por delante.
+  const width = (faceAxisX ? f.d : f.w) * 0.82;
+  const screenY = yBase + standH + 0.3;
+  const bx = f.x + f.faceX * (f.w / 2 - 0.055);
+  const bz = f.z + f.faceZ * (f.d / 2 - 0.055);
+  bezel.push(compose(bx, bz, screenY, faceAxisX ? 0.06 : width, 0.5, faceAxisX ? width : 0.06));
+  const px = f.x + f.faceX * (f.w / 2 - 0.03);
+  const pz = f.z + f.faceZ * (f.d / 2 - 0.03);
+  const panel = width * 0.86;
+  screen.push(compose(px, pz, screenY, faceAxisX ? 0.03 : panel, 0.42, faceAxisX ? panel : 0.03));
 }
 
 /** Mesa de centro baja: tablero + cuatro patas. */
@@ -2152,38 +2225,44 @@ function addShower(
   dark: THREE.Matrix4[],
   glass: THREE.Matrix4[],
   chrome: THREE.Matrix4[],
+  metal: THREE.Matrix4[],
+  head: THREE.Matrix4[],
+  headColors: THREE.Color[],
   yBase = 0,
 ): void {
   const ax = f.faceX; // vector a la cara ABIERTA; la pared del fondo es -face
   const az = f.faceZ;
   const facesX = ax !== 0;
 
-  // Plato de ducha: losa blanca baja a ras de suelo, con rejilla de desagüe.
-  const TRAY_H = 0.09;
-  ceramic.push(compose(f.x, f.z, yBase + TRAY_H / 2, f.w, TRAY_H, f.d));
-  dark.push(compose(f.x + ax * 0.18, f.z + az * 0.18, yBase + TRAY_H + 0.006, 0.13, 0.02, 0.13));
+  // Plato de ducha: losa blanca que SOBRESALE ~0.1 m sobre la tarima interior
+  // (cuya cara superior está a y≈0.18, ver addHouseShell); la parte baja del plato
+  // queda embebida en la tarima para no dejar holgura. La mampara apoya encima.
+  const TRAY_TOP = 0.28; // cara superior del plato
+  const TRAY_H = 0.12;
+  ceramic.push(compose(f.x, f.z, yBase + TRAY_TOP - TRAY_H / 2, f.w, TRAY_H, f.d));
+  dark.push(compose(f.x + ax * 0.18, f.z + az * 0.18, yBase + TRAY_TOP + 0.006, 0.13, 0.02, 0.13)); // rejilla de desagüe
 
   // Mampara: dos paños de cristal (cara abierta +face y un lateral en +X/+Z) con
-  // perfiles cromados arriba/abajo y postes en las esquinas.
+  // perfiles cromados arriba/abajo y postes en las esquinas, apoyados en el plato.
   const GLASS_H = 1.92;
   const PT = 0.04; // grosor del cristal
   const FR = 0.05; // grosor de los perfiles cromados
-  const gcy = yBase + TRAY_H + GLASS_H / 2;
-  const yTop = yBase + TRAY_H + GLASS_H;
-  const yBot = yBase + TRAY_H + FR / 2;
+  const gcy = yBase + TRAY_TOP + GLASS_H / 2;
+  const yTop = yBase + TRAY_TOP + GLASS_H;
+  const yBot = yBase + TRAY_TOP + FR / 2;
+  const s = f.openSign ?? 1; // signo del lateral ABIERTO (perpendicular a la cara)
   const frontX = f.x + ax * (f.w / 2 - PT / 2);
   const frontZ = f.z + az * (f.d / 2 - PT / 2);
-  const sideX = f.x + (f.w / 2 - PT / 2); // lateral abierto en +X (cuando mira en Z)
-  const sideZ = f.z + (f.d / 2 - PT / 2); // lateral abierto en +Z (cuando mira en X)
+  const sideX = f.x + s * (f.w / 2 - PT / 2); // lateral abierto (cuando mira en Z)
+  const sideZ = f.z + s * (f.d / 2 - PT / 2); // lateral abierto (cuando mira en X)
 
   if (facesX) {
     glass.push(compose(frontX, f.z, gcy, PT, GLASS_H, f.d)); // paño frontal
     glass.push(compose(f.x, sideZ, gcy, f.w, GLASS_H, PT)); // paño lateral
-    chrome.push(compose(frontX, f.z, yTop, FR, FR, f.d));
-    chrome.push(compose(frontX, f.z, yBot, FR, FR, f.d));
-    chrome.push(compose(f.x, sideZ, yTop, f.w, FR, FR));
-    chrome.push(compose(f.x, sideZ, yBot, f.w, FR, FR));
-    chrome.push(compose(frontX, f.z, gcy, FR, GLASS_H, FR)); // montante central (puerta)
+    chrome.push(compose(frontX, f.z, yTop, FR, FR, f.d)); // perfil superior frente
+    chrome.push(compose(frontX, f.z, yBot, FR, FR, f.d)); // perfil inferior frente
+    chrome.push(compose(f.x, sideZ, yTop, f.w, FR, FR)); // perfil superior lateral
+    chrome.push(compose(f.x, sideZ, yBot, f.w, FR, FR)); // perfil inferior lateral
   } else {
     glass.push(compose(f.x, frontZ, gcy, f.w, GLASS_H, PT));
     glass.push(compose(sideX, f.z, gcy, PT, GLASS_H, f.d));
@@ -2191,22 +2270,32 @@ function addShower(
     chrome.push(compose(f.x, frontZ, yBot, f.w, FR, FR));
     chrome.push(compose(sideX, f.z, yTop, FR, FR, f.d));
     chrome.push(compose(sideX, f.z, yBot, FR, FR, f.d));
-    chrome.push(compose(f.x, frontZ, gcy, FR, GLASS_H, FR));
   }
+  // Postes verticales en las 3 esquinas vistas (la 4ª, contra ambas paredes, se
+  // omite). `(ox,oz)` es la esquina ABIERTA donde se juntan los dos cristales.
+  const ox = facesX ? Math.sign(ax) : s;
+  const oz = facesX ? s : Math.sign(az);
   for (const cxs of [-1, 1] as const) {
     for (const czs of [-1, 1] as const) {
+      if (cxs === -ox && czs === -oz) continue; // esquina interior (contra dos paredes)
       chrome.push(compose(f.x + cxs * (f.w / 2 - FR / 2), f.z + czs * (f.d / 2 - FR / 2), gcy, FR, GLASS_H, FR));
     }
   }
 
   // Columna de ducha sobre la pared del fondo (-face): barra vertical, grifo
-  // termostático, brazo y rociador de lluvia colgando, todo cromado y visible.
-  const backX = f.x - ax * (f.w / 2 - 0.04);
-  const backZ = f.z - az * (f.d / 2 - 0.04);
-  chrome.push(compose(backX, backZ, yBase + 1.5, 0.07, 1.2, 0.07)); // barra vertical
-  chrome.push(compose(backX + ax * 0.04, backZ + az * 0.04, yBase + 1.02, facesX ? 0.1 : 0.22, 0.16, facesX ? 0.22 : 0.1)); // grifo
-  chrome.push(compose(backX + ax * 0.17, backZ + az * 0.17, yBase + 1.98, facesX ? 0.3 : 0.05, 0.05, facesX ? 0.05 : 0.3)); // brazo
-  chrome.push(compose(backX + ax * 0.32, backZ + az * 0.32, yBase + 1.92, 0.24, 0.05, 0.24)); // rociador de lluvia
+  // termostático bajo, ducha de mano y, arriba, brazo con rociador de lluvia
+  // colgando hacia el interior. Los herrajes van en gris metálico (no en el cromo
+  // azulado de la mampara) y el rociador toma color por instancia.
+  const backX = f.x - ax * (f.w / 2 - 0.05);
+  const backZ = f.z - az * (f.d / 2 - 0.05);
+  metal.push(compose(backX, backZ, yBase + 1.46, 0.05, 1.16, 0.05)); // barra vertical
+  metal.push(compose(backX + ax * 0.05, backZ + az * 0.05, yBase + 1.0, facesX ? 0.09 : 0.24, 0.14, facesX ? 0.24 : 0.09)); // grifo termostático
+  metal.push(compose(backX + ax * 0.07, backZ + az * 0.07, yBase + 1.42, 0.07, 0.2, 0.07)); // ducha de mano
+  metal.push(compose(backX + ax * 0.2, backZ + az * 0.2, yBase + 2.02, facesX ? 0.4 : 0.06, 0.06, facesX ? 0.06 : 0.4)); // brazo superior
+  // Rociador de lluvia: negro / blanco / acero según la variante de la pieza.
+  const HEAD_COLORS = [0x9aa6ad, 0x232327, 0xf0f0ec];
+  head.push(compose(backX + ax * 0.4, backZ + az * 0.4, yBase + 1.95, 0.28, 0.06, 0.28));
+  headColors.push(new THREE.Color(HEAD_COLORS[(f.variant ?? 0) % HEAD_COLORS.length]));
 }
 
 /** Bañera: cubeta clara con agua interior. */
@@ -2473,6 +2562,7 @@ function addOfficeShell(b: RenderBuilding, K: RenderBuckets): void {
   const pushPart = (m: THREE.Matrix4) => K.partitionMats.push(m);
   const { floorH, floorCount, core, dwellings } = oi;
   const shaft = officeShaft(b, core); // ojo de escalera (igual en todas las plantas)
+  const railSides = holeRailSides(shaft, core); // qué bordes dan a rellano (barandilla) vs. muro
   const sw = b.faceZ !== 0 ? shaft.width : shaft.depth;
   const sd = b.faceZ !== 0 ? shaft.depth : shaft.width;
 
@@ -2482,6 +2572,9 @@ function addOfficeShell(b: RenderBuilding, K: RenderBuckets): void {
     // no la lleva (es el suelo de calle) y las superiores dejan un HUECO sobre el
     // ojo de escalera, para que la escalera lo atraviese de verdad.
     if (f > 0) addSlabWithHole(K.floorMats, b.x, b.z, b.w - 0.02, b.d - 0.02, shaft.x, shaft.z, sw, sd, yBase + 0.09);
+    // Barandilla perimetral del HUECO de escalera en el forjado (protege de caer
+    // al hueco desde el rellano; abierta por el frente, que es la boca de bajada).
+    if (f > 0) addFloorHoleRail(shaft, railSides, yBase, floorH, K.stairRailMats);
     // Casco perimetral con su rejilla de ventanas (puerta de calle solo en baja).
     addOfficePerimeter(b, yBase, floorH, t, f === 0, pushBody, K.windowMats, K.windowFrameMats);
 
@@ -2499,7 +2592,7 @@ function addOfficeShell(b: RenderBuilding, K: RenderBuckets): void {
     }
 
     // Tramo de escalera (ida y vuelta) hacia la planta superior.
-    if (f < floorCount - 1) addStairwell(shaft, yBase, floorH, K.stairMats, K.stairRailMats, f === floorCount - 2);
+    if (f < floorCount - 1) addStairwell(shaft, railSides, yBase, floorH, K.stairMats, K.stairRailMats, f === floorCount - 2);
   }
 }
 
@@ -2679,15 +2772,46 @@ function addCoreWall(
 }
 
 /**
+ * Qué bordes del hueco de escalera lindan con RELLANO transitable (y por tanto
+ * necesitan barandilla) frente a los que dan a una PARED (no la necesitan). Se
+ * decide comparando el hueco con la caja del núcleo (`core`): allí donde el
+ * núcleo se extiende más allá del hueco un margen caminable hay suelo de rellano;
+ * donde el hueco queda casi a ras del borde del núcleo, hay muro perimetral.
+ *  - `plusU`/`minusU`: laterales del ojo (eje transversal), un lado suele ser el
+ *    rellano y el otro la pared en núcleos laterales; ambos son rellano en núcleos
+ *    al fondo (el hueco es más estrecho que el ancho a cada lado).
+ *  - `back`: fondo del hueco (casi siempre pegado a la fachada trasera → false).
+ * El FRENTE nunca se raila: es la boca de subida/bajada (lo tapa el rellano de planta).
+ */
+function holeRailSides(shaft: OfficeShaft, core: OfficeCore): { plusU: boolean; minusU: boolean; back: boolean } {
+  const { x: sx, z: sz, depth: shaftD, width: shaftW, vX, vZ } = shaft;
+  const uX = -vZ;
+  const uZ = vX;
+  const vAlongZ = vZ !== 0;
+  const coreVhalf = (vAlongZ ? core.d : core.w) / 2; // semiextensión del núcleo en el eje de subida
+  const coreUhalf = (vAlongZ ? core.w : core.d) / 2; // ...y en el transversal
+  const du = (core.x - sx) * uX + (core.z - sz) * uZ; // centro del núcleo vs. hueco, proyectado
+  const dv = (core.x - sx) * vX + (core.z - sz) * vZ;
+  const WALK = 0.35; // margen mínimo de suelo para considerarlo rellano pisable (no un resquicio junto al muro)
+  return {
+    plusU: du + coreUhalf - shaftW / 2 > WALK,
+    minusU: coreUhalf - du - shaftW / 2 > WALK,
+    back: dv + coreVhalf - shaftD / 2 > WALK,
+  };
+}
+
+/**
  * Escalera de ida y vuelta (zigzag) que sube de una planta a la siguiente. Sube
  * media planta (Tramo 1) por un lado del ojo hasta una MESETA DE GIRO al fondo, y
  * la otra media (Tramo 2) por el otro lado de vuelta al frente, terminando
  * EXACTAMENTE a la altura del piso superior, sobre un RELLANO DE PLANTA. El
  * rellano de planta y la meseta conectan los tramos para que el recorrido sea
  * continuo y caminable. `isTop` añade el rellano de la última planta servida.
+ * `sides` indica qué bordes exteriores dan a rellano (llevan barandilla) o a muro.
  */
 function addStairwell(
   shaft: OfficeShaft,
+  sides: { plusU: boolean; minusU: boolean; back: boolean },
   yBase: number,
   floorH: number,
   stairMats: THREE.Matrix4[],
@@ -2708,6 +2832,8 @@ function addStairwell(
   const inner1 = uOff - flightW / 2; // borde interior del Tramo 1 (hacia el ojo)
   const inner2 = -uOff + flightW / 2; // borde interior del Tramo 2
   const eyeW = inner1 - inner2; // ancho del ojo (hueco central entre tramos)
+  const outer1 = shaftW / 2; // borde exterior del Tramo 1 (hacia el rellano/muro del núcleo)
+  const outer2 = -shaftW / 2; // borde exterior del Tramo 2
   // Caja en el frame local (bv a lo largo del eje de subida, bu transversal).
   const boxTo = (mats: THREE.Matrix4[], cx: number, cz: number, cy: number, bv: number, bu: number, hy: number) =>
     mats.push(compose(cx, cz, cy, vAlongZ ? bu : bv, hy, vAlongZ ? bv : bu));
@@ -2729,8 +2855,11 @@ function addStairwell(
     if (eyeW > 0.05) rail(frontLand - RAIL_T / 2, 0, yBase + FLOOR_TOP, RAIL_T, eyeW);
   }
 
-  // Tramo 1 (un lado): del rellano de planta hacia el fondo, subiendo media planta.
-  // Barandilla SOLO en el borde interior (el que da al ojo).
+  // Tramo 1 (lado +u): del rellano de planta hacia el fondo, subiendo media planta.
+  // Barandilla SOLO en el borde interior (el que da al ojo). El borde exterior NO
+  // se raila: contra la pared no hace falta, y del lado del rellano la protección
+  // la da la barandilla del borde del hueco a nivel de planta (`addFloorHoleRail`),
+  // sin barras que suban pegadas a los peldaños "tapando" la escalera.
   for (let i = 0; i < N; i++) {
     const s = frontLand + (i + 0.5) * going;
     const h = (i + 1) * rise;
@@ -2739,9 +2868,12 @@ function addStairwell(
   }
   // Meseta de GIRO al fondo, a media altura, a todo el ancho del ojo.
   at(frontLand + flightRun + landBack / 2, 0, yBase + halfRise - LAND_T / 2, landBack, shaftW, LAND_T);
-  // Barandilla de la meseta por el lado del ojo (borde delantero, tramo central).
+  // Barandilla de la meseta: lado del ojo (siempre) y el borde exterior solo si da
+  // a rellano (la meseta es una tarima elevada: sí protege su caída lateral).
   if (eyeW > 0.05) rail(frontLand + flightRun + RAIL_T / 2, 0, yBase + halfRise, RAIL_T, eyeW);
-  // Tramo 2 (otro lado): de la meseta de vuelta al frente, subiendo la otra media.
+  if (sides.plusU) rail(frontLand + flightRun + landBack / 2, outer1, yBase + halfRise, landBack, RAIL_T);
+  if (sides.minusU) rail(frontLand + flightRun + landBack / 2, outer2, yBase + halfRise, landBack, RAIL_T);
+  // Tramo 2 (lado −u): de la meseta de vuelta al frente, subiendo la otra media.
   for (let i = 0; i < N; i++) {
     const s = frontLand + flightRun - (i + 0.5) * going;
     const climb = (i + 1) * rise; // altura ganada sobre la meseta de giro
@@ -2754,6 +2886,47 @@ function addStairwell(
     at(frontLand / 2, 0, yBase + floorH + FLOOR_TOP - LAND_T / 2, frontLand, shaftW, LAND_T);
     if (eyeW > 0.05) rail(frontLand - RAIL_T / 2, 0, yBase + floorH + FLOOR_TOP, RAIL_T, eyeW);
   }
+}
+
+/**
+ * Barandilla de protección en el borde del HUECO de la escalera del forjado de
+ * una planta, SOLO en los lados que dan a rellano transitable (`sides`): así
+ * protege la caída al hueco desde el suelo pisable, sin poner barandillas contra
+ * las paredes ni en la boca de bajada. Cubre solo el vano abierto por detrás del
+ * rellano de planta (`s ∈ [frontLand, shaftD]`); el frente lo tapa dicho rellano.
+ * Comparte cota y grosor con las barandillas de los tramos (`addStairwell`).
+ */
+function addFloorHoleRail(
+  shaft: OfficeShaft,
+  sides: { plusU: boolean; minusU: boolean; back: boolean },
+  yBase: number,
+  floorH: number,
+  stairRailMats: THREE.Matrix4[],
+): void {
+  const { x: sx, z: sz, depth: shaftD, width: shaftW, vX, vZ } = shaft;
+  const uX = -vZ; // eje transversal (ancho del ojo)
+  const uZ = vX;
+  const vAlongZ = vZ !== 0;
+  const { frontLand } = stairLayout(shaftD, floorH);
+  const FLOOR_TOP = 0.18;
+  const RAIL_H = 0.95;
+  const RAIL_T = 0.08;
+  const voidLen = shaftD - frontLand; // tramo de hueco abierto (por detrás del rellano)
+  if (voidLen < 0.05) return;
+  const frontX = sx - vX * (shaftD / 2);
+  const frontZ = sz - vZ * (shaftD / 2);
+  const topY = yBase + FLOOR_TOP;
+  // `s` a lo largo del eje de subida (desde el frente), `o` transversal. `bv`/`bu`
+  // = tamaños a lo largo de esos ejes (mapeados a X/Z según la orientación del ojo).
+  const rail = (s: number, o: number, bv: number, bu: number) =>
+    stairRailMats.push(
+      compose(frontX + vX * s + uX * o, frontZ + vZ * s + uZ * o, topY + RAIL_H / 2, vAlongZ ? bu : bv, RAIL_H, vAlongZ ? bv : bu),
+    );
+  const midS = (frontLand + shaftD) / 2;
+  const side = shaftW / 2 - RAIL_T / 2;
+  if (sides.back) rail(shaftD - RAIL_T / 2, 0, RAIL_T, shaftW); // borde del fondo (a todo el ancho)
+  if (sides.plusU) rail(midS, side, voidLen, RAIL_T); // lateral +u del ojo
+  if (sides.minusU) rail(midS, -side, voidLen, RAIL_T); // lateral −u del ojo
 }
 
 /** Despacha una pieza de mobiliario de una planta de oficina a su bucket, con `yBase`. */
@@ -2775,7 +2948,7 @@ function addOfficeFurniture(f: RenderFurniture, yBase: number, K: RenderBuckets)
       addRug(f, K.rugMats, K.rugColors, yBase);
       break;
     case 'shower':
-      addShower(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats, K.bathMirrorMats, yBase);
+      addShower(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats, K.bathMirrorMats, K.showerMetalMats, K.showerHeadMats, K.showerHeadColors, yBase);
       break;
     case 'bathtub':
       addBathtub(f, K.bathCeramicMats, K.bathDarkMats, K.bathGlassMats, yBase);
@@ -2812,7 +2985,7 @@ function addOfficeFurniture(f: RenderFurniture, yBase: number, K: RenderBuckets)
       addUpholstered(f, K.upholsteryMats, K.upholsteryColors, K.furnDarkMats, yBase);
       break;
     case 'tv':
-      addTv(f, K.furnWoodMats, K.furnDarkMats, yBase);
+      addTv(f, K.tvStandMats, K.tvStandColors, K.furnDarkMats, K.tvBezelMats, K.tvScreenMats, yBase);
       break;
     case 'coffeeTable':
       addCoffeeTable(f, K.furnWoodMats, K.furnDarkMats, yBase);

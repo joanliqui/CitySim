@@ -7,8 +7,8 @@
  * manzanas edificables entre ellas.
  */
 
-import type { BuildingType } from './buildings/types/BuildingTypes';
-import type { HouseInterior, OfficeInterior } from './buildings/interior/types';
+import type { BuildingType, ShopKind } from './buildings/types/BuildingTypes';
+import type { HouseInterior, MarketInterior, OfficeInterior } from './buildings/interior/types';
 import type { PlayKind } from './park/types/PlayTypes';
 import type { TreeKind } from './vegetation/types/TreeTypes';
 
@@ -144,12 +144,14 @@ export function sampleCurve(c: EdgeCurve, s: number, outP: Vec2, outT: Vec2): vo
   outT.z = (b.z - a.z) / segLen;
 }
 
-export type { BuildingType };
-export type { Furniture, FurnitureKind, HouseInterior, InteriorWall, OfficeInterior, RoomKind, RoomRect, StairCore } from './buildings/interior/types';
+export type { BuildingType, ShopKind };
+export type { Furniture, FurnitureKind, HouseInterior, InteriorWall, MarketInterior, OfficeInterior, RoomKind, RoomRect, StairCore } from './buildings/interior/types';
 
 export interface Building {
   id: number;
   type: BuildingType;
+  /** Solo tiendas (`type: 'shop'`): subtipo concreto (genérica, supermercado…). */
+  shopKind?: ShopKind;
   name: string;
   /** Centro de la huella. */
   x: number;
@@ -172,6 +174,8 @@ export interface Building {
   interior?: HouseInterior;
   /** Solo edificios altos: rellano + escaleras + una vivienda por planta. */
   officeInterior?: OfficeInterior;
+  /** Solo supermercados: zona de cajas + pasillos por sección. */
+  marketInterior?: MarketInterior;
 }
 
 /**

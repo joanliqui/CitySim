@@ -32,6 +32,10 @@ export const FLOOR_H = 3.4;
  */
 const MIN_DWELLING = 2.7; // fondo mínimo de la vivienda por delante del núcleo (m)
 const MIN_CORE = 3.0; // fondo mínimo del núcleo (escalera + rellano mínimos) (m)
+// Tope del núcleo: lo justo para un hueco de escalera cómodo (~3 m) + rellano
+// compacto. NO crece más: todo el fondo/ancho sobrante es para la vivienda, así
+// las habitaciones salen más grandes (sin un rellano enorme y vacío).
+const CORE_SIZE_MAX = 4.0;
 
 /** Fondo (perpendicular a la fachada) mínimo para que una oficina tenga interior
  *  en vez de quedar como caja maciza. Por debajo de esto no cabe núcleo+vivienda.
@@ -73,9 +77,9 @@ export function makeOfficeInterior(
 
   if (!useSide) {
     // ── Núcleo AL FONDO ──
-    // Fondo del núcleo: lo más amplio posible (dos tramos + meseta + rellano),
-    // dejando siempre al menos MIN_DWELLING de fondo a la vivienda por delante.
-    const coreDepth = Math.max(MIN_CORE, Math.min(5.2, perp - MIN_DWELLING));
+    // Fondo del núcleo: lo JUSTO para la escalera (hasta CORE_SIZE_MAX); el resto
+    // del fondo es para la vivienda. Siempre deja al menos MIN_DWELLING por delante.
+    const coreDepth = Math.max(MIN_CORE, Math.min(CORE_SIZE_MAX, perp - MIN_DWELLING));
     const nX = -faceX;
     const nZ = -faceZ; // vivienda→núcleo = hacia el fondo
     if (faceZmode) {
@@ -97,7 +101,7 @@ export function makeOfficeInterior(
     // ── Núcleo A UN LADO ──
     // El núcleo ocupa todo el fondo y una franja de ancho a un lado; la escalera
     // sube a lo largo del fondo. La vivienda ocupa el resto del ancho, todo el fondo.
-    const coreW = Math.max(MIN_CORE, Math.min(5.2, along - MIN_DWELLING));
+    const coreW = Math.max(MIN_CORE, Math.min(CORE_SIZE_MAX, along - MIN_DWELLING));
     // R = lateral unitario ("derecha" de la calle). Lado determinista por posición
     // para variar a qué lado cae el núcleo sin perder reproducibilidad.
     const Rx = -faceZ;

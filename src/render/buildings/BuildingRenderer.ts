@@ -29,6 +29,8 @@ export interface RenderBuckets {
   awningColors: THREE.Color[];
   signMats: THREE.Matrix4[];
   signColors: THREE.Color[];
+  /** Cristal transparente de las puertas y escaparate del supermercado. */
+  marketGlassMats: THREE.Matrix4[];
   windowMats: THREE.Matrix4[];
   windowFrameMats: THREE.Matrix4[];
   balconySlabMats: THREE.Matrix4[];
@@ -44,6 +46,11 @@ export interface RenderBuckets {
   /** Mobiliario auxiliar: madera (cuerpos) y oscuro (tiradores/juntas). */
   furnWoodMats: THREE.Matrix4[];
   furnDarkMats: THREE.Matrix4[];
+  /** Mueble de TV (color por instancia según variante) y su pantalla: marco gris + panel negro. */
+  tvStandMats: THREE.Matrix4[];
+  tvStandColors: THREE.Color[];
+  tvBezelMats: THREE.Matrix4[];
+  tvScreenMats: THREE.Matrix4[];
   /** Alfombras (color por instancia). */
   rugMats: THREE.Matrix4[];
   rugColors: THREE.Color[];
@@ -55,6 +62,11 @@ export interface RenderBuckets {
   bathGlassMats: THREE.Matrix4[];
   /** Espejos sobre lavamanos. */
   bathMirrorMats: THREE.Matrix4[];
+  /** Columna de ducha: palo y herrajes en gris metálico. */
+  showerMetalMats: THREE.Matrix4[];
+  /** Rociador (alcachofa) de la ducha: color por instancia (negro/blanco/acero). */
+  showerHeadMats: THREE.Matrix4[];
+  showerHeadColors: THREE.Color[];
   /** Maceta (terracota) de las plantas de interior. */
   plantPotMats: THREE.Matrix4[];
   /** Follaje (verde) de las plantas de interior. */
@@ -167,11 +179,27 @@ export interface BuildingRenderHelpers {
   addSideboard(f: RenderFurniture, wood: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
   addPottedPlant(f: RenderFurniture, pot: THREE.Matrix4[], leaf: THREE.Matrix4[]): void;
   addUpholstered(f: RenderFurniture, uph: THREE.Matrix4[], uphColors: THREE.Color[], dark: THREE.Matrix4[]): void;
-  addTv(f: RenderFurniture, wood: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
+  addTv(
+    f: RenderFurniture,
+    stand: THREE.Matrix4[],
+    standColors: THREE.Color[],
+    dark: THREE.Matrix4[],
+    bezel: THREE.Matrix4[],
+    screen: THREE.Matrix4[],
+  ): void;
   addCoffeeTable(f: RenderFurniture, wood: THREE.Matrix4[], dark: THREE.Matrix4[]): void;
   addBookshelf(f: RenderFurniture, wood: THREE.Matrix4[], books: THREE.Matrix4[], bookColors: THREE.Color[]): void;
   addFloorLamp(f: RenderFurniture, dark: THREE.Matrix4[], warm: THREE.Matrix4[], shades: LampShade[]): void;
-  addShower(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[], glass: THREE.Matrix4[], chrome: THREE.Matrix4[]): void;
+  addShower(
+    f: RenderFurniture,
+    ceramic: THREE.Matrix4[],
+    dark: THREE.Matrix4[],
+    glass: THREE.Matrix4[],
+    chrome: THREE.Matrix4[],
+    metal: THREE.Matrix4[],
+    head: THREE.Matrix4[],
+    headColors: THREE.Color[],
+  ): void;
   addBathtub(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[], glass: THREE.Matrix4[]): void;
   addSink(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[], mirror: THREE.Matrix4[]): void;
   addToilet(f: RenderFurniture, ceramic: THREE.Matrix4[], dark: THREE.Matrix4[]): void;

@@ -30,9 +30,10 @@ import {
   type Tree,
   type Vec2,
 } from './CityModel';
-import { type DistrictSpec } from './buildings/BuildingFactory';
+import { type BuildContext, type DistrictSpec } from './buildings/BuildingFactory';
 import { OFFICE_MIN_DEPTH } from './buildings/interior/officeInterior';
-import { SETBACK, SIDE_INSET, type BuildableRect, type ClearanceCircle, type SideTag } from './buildings/placement';
+import { ShopFactory } from './buildings/ShopFactory';
+import { BUILDING_GAP, SETBACK, SIDE_INSET, type BuildableRect, type ClearanceCircle, type SideTag } from './buildings/placement';
 import { buildingFactories, pickFactory } from './buildings/registry';
 import { makePlayItem } from './park/registry';
 import type { PlayKind } from './park/types/PlayTypes';
@@ -194,6 +195,11 @@ export function generateCity(seed: number): CityModel {
       }
     }
   }
+
+  // Supermercados: pase ESPECIAL con RNG propio (no consume el `rng` principal, así
+  // la ciudad ya generada no se resembra). Coloca naves anchas en manzanas
+  // comerciales y demuele los edificios/árboles que pisan.
+  placeSupermarkets(seed, plan, buildings, trees, clearances, typeCount, 2);
 
   // Setos del perímetro del parque: una corona continua que rodea TODO el parque
   // (ya fundido), como las vallas rodean cada casa.
@@ -673,6 +679,140 @@ function placeSide(
       typeCount,
     });
     if (b) buildings.push(b);
+  }
+}
+
+/** Semianchura mínima de fachada y fondo para que una nave cuente como súper. */
+const SUPERMARKET_MIN_FRONT = 23;
+const SUPERMARKET_MIN_DEPTH = 12;
+
+/**
+ * Pase ESPECIAL de supermercados: RNG propio (no toca el `rng` principal → la
+ * ciudad ya generada no cambia). Recorre manzanas comerciales (mixed/dense) en
+ * orden barajado y coloca hasta `count` naves anchas; cada una demuele los
+ * edificios y árboles que su huella pisa.
+ */
+function placeSupermarkets(
+  seed: number,
+  plan: CityPlan,
+  buildings: Building[],
+  trees: Tree[],
+  clearances: ClearanceCircle[],
+  typeCount: Record<BuildingType, number>,
+  count: number,
+): void {
+  const rng = new Rng(seed + 53);
+  const shop = buildingFactories.shop as ShopFactory;
+  const g = CITY.grid;
+  const nb = g - 1; // nº de manzanas por eje
+
+  // Reparto por ZONAS: la ciudad se divide en `count` bandas horizontales (norte→
+  // sur) y se coloca UN supermercado por banda, así quedan separados (p. ej. uno
+  // al norte y otro al sur). Dentro de cada banda se prueban las manzanas (de
+  // cualquier distrito salvo parque) en orden barajado.
+  const placedSm: Building[] = [];
+  const MIN_GAP = 55; // separación mínima entre supermercados (m)
+  for (let band = 0; band < count; band++) {
+    const bj0 = Math.floor((band * nb) / count);
+    const bj1 = Math.max(bj0 + 1, Math.floor(((band + 1) * nb) / count));
+
+    const candidates: Array<{ bi: number; bj: number }> = [];
+    for (let bj = bj0; bj < bj1; bj++) {
+      for (let bi = 0; bi < nb; bi++) {
+        if (districtAt(plan, bi, bj) !== 'park') candidates.push({ bi, bj });
+      }
+    }
+    for (let k = candidates.length - 1; k > 0; k--) {
+      const r = rng.int(0, k + 1);
+      [candidates[k], candidates[r]] = [candidates[r], candidates[k]];
+    }
+
+    for (const c of candidates) {
+      const sm = trySupermarketOnBlock(rng, shop, plan, c.bi, c.bj, buildings, clearances, typeCount);
+      if (!sm) continue;
+      if (placedSm.some((p) => Math.hypot(p.x - sm.x, p.z - sm.z) < MIN_GAP)) continue;
+      demolishUnder(buildings, sm);
+      removeTreesUnder(trees, sm);
+      buildings.push(sm);
+      placedSm.push(sm);
+      break; // uno por banda
+    }
+  }
+}
+
+/**
+ * Intenta colocar un supermercado en una manzana: prueba sus lados abiertos (del
+ * más ancho al más estrecho) y devuelve la primera nave que encaje, o null.
+ */
+function trySupermarketOnBlock(
+  rng: Rng,
+  shop: ShopFactory,
+  plan: CityPlan,
+  bi: number,
+  bj: number,
+  buildings: Building[],
+  clearances: ClearanceCircle[],
+  typeCount: Record<BuildingType, number>,
+): Building | null {
+  const district = districtAt(plan, bi, bj) as Exclude<District, 'park'>;
+  const spec = DISTRICTS[district];
+  const wX = roadX(bi);
+  const eX = roadX(bi + 1);
+  const nZ = roadZ(bj);
+  const sZ = roadZ(bj + 1);
+  const buildable: BuildableRect = { x0: wX + CORRIDOR_HALF, x1: eX - CORRIDOR_HALF, z0: nZ + CORRIDOR_HALF, z1: sZ - CORRIDOR_HALF };
+  const parkOnly = [plan.park];
+
+  // Lado abierto (con calle real) → rango a lo largo de la calle, fondo disponible
+  // (todo el ancho de la manzana: la nave llena el bloque) y eje de la calle.
+  const sides: Array<{ side: SideTag; a0: number; a1: number; perpRoom: number; roadLine: number }> = [];
+  if (!removedRoadSegment(parkOnly, 'h', bj, bi)) sides.push({ side: 'N', a0: buildable.x0, a1: buildable.x1, perpRoom: buildable.z1 - buildable.z0, roadLine: nZ });
+  if (!removedRoadSegment(parkOnly, 'h', bj + 1, bi)) sides.push({ side: 'S', a0: buildable.x0, a1: buildable.x1, perpRoom: buildable.z1 - buildable.z0, roadLine: sZ });
+  if (!removedRoadSegment(parkOnly, 'v', bi, bj)) sides.push({ side: 'W', a0: buildable.z0, a1: buildable.z1, perpRoom: buildable.x1 - buildable.x0, roadLine: wX });
+  if (!removedRoadSegment(parkOnly, 'v', bi + 1, bj)) sides.push({ side: 'E', a0: buildable.z0, a1: buildable.z1, perpRoom: buildable.x1 - buildable.x0, roadLine: eX });
+  sides.sort((p, q) => q.a1 - q.a0 - (p.a1 - p.a0));
+
+  for (const s of sides) {
+    const segLen = s.a1 - s.a0 - 2 * SIDE_INSET;
+    const maxDepth = s.perpRoom - SETBACK - 0.5;
+    if (segLen < SUPERMARKET_MIN_FRONT || maxDepth < SUPERMARKET_MIN_DEPTH) continue;
+    const ctx: BuildContext = {
+      side: s.side,
+      center: (s.a0 + s.a1) / 2,
+      segLen,
+      maxDepth,
+      roadLine: s.roadLine,
+      district,
+      spec,
+      buildable,
+      clearances,
+      buildings,
+      typeCount,
+    };
+    const sm = shop.buildSpecial(rng, ctx, 'supermarket', true);
+    if (sm) return sm;
+  }
+  return null;
+}
+
+/** Elimina del array los edificios cuya huella solapa la del supermercado. */
+function demolishUnder(buildings: Building[], sm: Building): void {
+  for (let i = buildings.length - 1; i >= 0; i--) {
+    const o = buildings[i];
+    if (o === sm) continue;
+    if (Math.abs(o.x - sm.x) < (o.w + sm.w) / 2 + BUILDING_GAP && Math.abs(o.z - sm.z) < (o.d + sm.d) / 2 + BUILDING_GAP) {
+      buildings.splice(i, 1);
+    }
+  }
+}
+
+/** Elimina los árboles que caen dentro de la huella del supermercado. */
+function removeTreesUnder(trees: Tree[], sm: Building): void {
+  for (let i = trees.length - 1; i >= 0; i--) {
+    const t = trees[i];
+    if (Math.abs(t.x - sm.x) < sm.w / 2 + t.r && Math.abs(t.z - sm.z) < sm.d / 2 + t.r) {
+      trees.splice(i, 1);
+    }
   }
 }
 

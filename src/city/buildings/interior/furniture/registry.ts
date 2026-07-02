@@ -1,7 +1,7 @@
 import { ArmchairFactory } from './ArmchairFactory';
 import { BathShelfFactory } from './BathShelfFactory';
 import { BathVanityFactory } from './BathVanityFactory';
-import type { FurnitureKind } from '../types';
+import type { HouseFurnitureKind } from '../types';
 import { BathtubFactory } from './BathtubFactory';
 import { BedFactory } from './BedFactory';
 import { BookshelfFactory } from './BookshelfFactory';
@@ -30,7 +30,7 @@ import { TvFactory } from './TvFactory';
 import { WardrobeFactory } from './WardrobeFactory';
 
 /** Registro de factorías por pieza. Los `*Furnisher` componen su receta a partir de aquí. */
-export const furnitureFactories: Record<FurnitureKind, FurnitureFactory> = {
+export const furnitureFactories: Record<HouseFurnitureKind, FurnitureFactory> = {
   bed: new BedFactory(),
   nightstand: new NightstandFactory(),
   wardrobe: new WardrobeFactory(),

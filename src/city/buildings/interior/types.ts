@@ -1,3 +1,6 @@
+import type { FridgeStore } from '../../food/Fridge';
+import type { FoodCategory } from '../../food/FoodCategory';
+
 /** Semántica de una estancia (se asigna al amueblar). */
 export type RoomKind = 'bedroom' | 'bathroom' | 'dining' | 'kitchen' | 'other';
 
@@ -11,8 +14,8 @@ export interface RoomRect {
   kind?: RoomKind;
 }
 
-/** Tipos de mueble interior. */
-export type FurnitureKind =
+/** Mobiliario de vivienda (lo coloca el pipeline de amuebladores de casas). */
+export type HouseFurnitureKind =
   | 'bed'
   | 'nightstand'
   | 'wardrobe'
@@ -42,6 +45,18 @@ export type FurnitureKind =
   | 'kitchenCounter'
   | 'kitchenCabinet';
 
+/** Mobiliario de supermercado (lo genera `marketInterior`, no los amuebladores). */
+export type MarketFurnitureKind =
+  /** Mostrador de caja registradora junto a la entrada. */
+  | 'checkout'
+  /** Cinta transportadora asociada a una caja. */
+  | 'conveyor'
+  /** Góndola/estantería de un pasillo (lleva su `category`). */
+  | 'shelfAisle';
+
+/** Todos los tipos de mueble interior. */
+export type FurnitureKind = HouseFurnitureKind | MarketFurnitureKind;
+
 /**
  * Mueble axis-aligned en planta (coordenadas de mundo). `w`/`d` son la huella en
  * los ejes X/Z; `faceX`/`faceZ` es el vector unitario hacia el frente del mueble
@@ -61,8 +76,15 @@ export interface Furniture {
   sinkMount?: 'standalone' | 'vanity';
   /** Solo microondas: si va exento sobre su propio soporte (true) o apoyado en una encimera. */
   microwaveStand?: boolean;
+  /** Solo ducha de esquina: signo del lateral ABIERTO (con cristal), perpendicular a la cara;
+   * el lado opuesto queda cerrado contra la pared. Por defecto +1. */
+  openSign?: number;
   /** Variación de acabado/color determinista. */
   variant?: number;
+  /** Solo nevera: comida almacenada (capacidad limitada). Sin representación 3D. */
+  food?: FridgeStore;
+  /** Solo góndola de súper: sección de comida a la que pertenece el pasillo. */
+  category?: FoodCategory;
 }
 
 /** Tabique interior axis-aligned en planta, de (ax,az) a (bx,bz). */
@@ -124,4 +146,19 @@ export interface OfficeInterior {
   core: StairCore;
   /** Vivienda de cada planta superior (índice 0 = planta 1). */
   dwellings: HouseInterior[];
+}
+
+/**
+ * Distribución interior de un supermercado (nave de una sola planta): una zona de
+ * cajas junto a la entrada y una rejilla de pasillos, cada uno dedicado a una
+ * `FoodCategory`. Todo el mobiliario (cajas, cintas, góndolas) va en `furniture`
+ * con su `kind`; el render lo recorre igual que el de las casas.
+ */
+export interface MarketInterior {
+  /** Grosor del muro perimetral de la nave. */
+  wallT: number;
+  /** Secciones (una por pasillo), en el orden en que se colocaron. */
+  categories: FoodCategory[];
+  /** Cajas, cintas y góndolas de pasillo. */
+  furniture: Furniture[];
 }

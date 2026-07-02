@@ -901,3 +901,121 @@ body,
     transform: translate(-50%, -50%) scale(0.7);
   }
 }
+
+/* ── Popup de la nevera ─────────────────────────────────────────────────── */
+.fridge-overlay {
+  pointer-events: auto;
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 10, 16, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.fridge-overlay.hidden {
+  display: none;
+}
+
+.fridge {
+  position: relative;
+  width: min(340px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.fridge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.fridge-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fridge-space {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fridge-space > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fridge-space-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.03em;
+}
+
+.fridge-space-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.fridge-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.fridge-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.fridge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 8px;
+}
+
+.fridge-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 4px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+.fridge-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.fridge-qty {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.fridge-size {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fridge-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 8px 4px;
+}

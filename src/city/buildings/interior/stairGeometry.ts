@@ -43,9 +43,12 @@ export function officeShaft(b: FootprintBox, core: StairCore): OfficeShaft {
     const vZ = -b.faceZ; // dirección fachada → fondo (eje de subida)
     const coreDepth = faceZ ? core.d : core.w;
     const coreWidth = faceZ ? core.w : core.d;
-    // Reservamos un rellano AMPLIO por delante (entre la puerta y el arranque de la
-    // escalera) y un pequeño retranqueo contra el muro del fondo.
-    const FRONT_RELLANO = 2.0;
+    // Rellano por delante (entre la puerta de la vivienda y el arranque de la
+    // escalera). Como el núcleo al fondo deja la puerta DE FRENTE a la escalera,
+    // necesita un rellano cómodo para salir y girar (si no, queda pegado al primer
+    // peldaño). No encoge la vivienda: es espacio INTERNO al núcleo (reparte núcleo
+    // entre rellano y hueco), así que solo acorta un poco el hueco de escalera.
+    const FRONT_RELLANO = 1.5;
     const BACK_INSET = 0.2;
     const depth = Math.max(2.2, coreDepth - BACK_INSET - FRONT_RELLANO);
     const width = Math.min(coreWidth - 0.8, Math.max(3.6, coreWidth * 0.6));
@@ -66,7 +69,7 @@ export function officeShaft(b: FootprintBox, core: StairCore): OfficeShaft {
   const perpFull = faceZ ? b.d : b.w; // fondo total
   const coreAlong = faceZ ? core.w : core.d; // ancho del núcleo (a lo largo de fachada)
   const INSET = 0.2;
-  const SIDE_RELLANO = 1.4; // franja de rellano junto a la puerta de la vivienda
+  const SIDE_RELLANO = 0.9; // franja de rellano junto a la puerta de la vivienda (compacta)
   const STAIR_DEPTH = 4.8; // fondo del ojo: cabe un ida y vuelta cómodo
   const depth = Math.max(2.4, Math.min(perpFull - 2 * INSET, STAIR_DEPTH));
   const width = Math.max(2.2, coreAlong - SIDE_RELLANO - INSET);

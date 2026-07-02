@@ -16,6 +16,8 @@ npx tsc --noEmit # solo type-check
 
 No hay linter ni framework de tests. La verificación se hace ejecutando la app (`.claude/launch.json` define el server `city-sim` para el Preview MCP). En consola, `__app` expone helpers de debug: `__app.viewFrom(...)`, `__app.debugSelect('vehicle'|'pedestrian', i)`, `__app.sim.stats()`.
 
+**Comprobaciones visuales: las hace el usuario, no tú.** Encuadrar la cámara (mover/posicionar/iluminar la escena para ver algo concreto) es lento y poco fiable por tu parte (oclusión de paredes, bloom, escenas diminutas, panel de HUD). Cuando necesites ver algo renderizado para validar un cambio, **NO intentes buscarlo tú con capturas**: describe al usuario qué necesitas ver y pídele que lo ponga en cámara. Cuando te confirme que está encuadrado, continúa la verificación desde ahí (captura, lectura de estado, etc.). Sí puedes seguir verificando por tu cuenta lo que no requiere encuadre: type-check, ausencia de errores en consola, y consultas de estado/datos vía `__app`.
+
 ## Principios de diseño (IMPORTANTES)
 
 El código sigue **principios SOLID** y se apoya fuertemente en el **patrón Abstract Factory**. Respétalos al añadir o modificar funcionalidad:
