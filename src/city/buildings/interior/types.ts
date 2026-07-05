@@ -1,5 +1,5 @@
 import type { FridgeStore } from '../../food/Fridge';
-import type { FoodCategory } from '../../food/FoodCategory';
+import type { MarketSection } from './marketSections';
 
 /** Semántica de una estancia (se asigna al amueblar). */
 export type RoomKind = 'bedroom' | 'bathroom' | 'dining' | 'kitchen' | 'other';
@@ -47,12 +47,25 @@ export type HouseFurnitureKind =
 
 /** Mobiliario de supermercado (lo genera `marketInterior`, no los amuebladores). */
 export type MarketFurnitureKind =
-  /** Mostrador de caja registradora junto a la entrada. */
+  /** Góndola doble de un pasillo interior. */
+  | 'shelfAisle'
+  /** Estantería simple contra el muro del fondo. */
+  | 'wallShelf'
+  /** Sección de frutería contra la pared lateral: mueble base + tarimas
+   *  escalonadas de cajas con fruta/verdura (el render construye las tarimas). */
+  | 'produceRack'
+  /** Isla de fruta suelta (pallet con montón de fruta) en medio del pasillo. */
+  | 'produceCrate'
+  /** Expositor de pescadería: mostrador con bandejas de hielo y pescado. */
+  | 'fishCounter'
+  /** Expositor de carnicería: mostrador con bandejas de cortes de carne. */
+  | 'meatCounter'
+  /** Mesa de trabajo (inox) de pescadería/carnicería, contra el muro del fondo. */
+  | 'fishTable'
+  /** Mostrador de caja registradora. */
   | 'checkout'
   /** Cinta transportadora asociada a una caja. */
-  | 'conveyor'
-  /** Góndola/estantería de un pasillo (lleva su `category`). */
-  | 'shelfAisle';
+  | 'conveyor';
 
 /** Todos los tipos de mueble interior. */
 export type FurnitureKind = HouseFurnitureKind | MarketFurnitureKind;
@@ -83,8 +96,13 @@ export interface Furniture {
   variant?: number;
   /** Solo nevera: comida almacenada (capacidad limitada). Sin representación 3D. */
   food?: FridgeStore;
-  /** Solo góndola de súper: sección de comida a la que pertenece el pasillo. */
-  category?: FoodCategory;
+  /**
+   * Solo súper: sección(es) de la pieza (ver `marketSections.ts`). En una
+   * góndola doble (`shelfAisle`): `[cara hacia faceX/faceZ, cara opuesta]`;
+   * en el resto de piezas, un único elemento. Los NPC buscarán aquí la
+   * estantería adecuada al ir a comprar.
+   */
+  sections?: MarketSection[];
 }
 
 /** Tabique interior axis-aligned en planta, de (ax,az) a (bx,bz). */
@@ -149,16 +167,13 @@ export interface OfficeInterior {
 }
 
 /**
- * Distribución interior de un supermercado (nave de una sola planta): una zona de
- * cajas junto a la entrada y una rejilla de pasillos, cada uno dedicado a una
- * `FoodCategory`. Todo el mobiliario (cajas, cintas, góndolas) va en `furniture`
- * con su `kind`; el render lo recorre igual que el de las casas.
+ * Distribución interior de un supermercado (nave de una sola planta): zona de
+ * fruta/verdura abierta junto a la entrada, pasillos de estanterías de anchura
+ * variable, una estantería contra el muro del fondo y una fila de cajas con
+ * mampara. Todo el mobiliario va en `furniture`, con su `kind`.
  */
 export interface MarketInterior {
   /** Grosor del muro perimetral de la nave. */
   wallT: number;
-  /** Secciones (una por pasillo), en el orden en que se colocaron. */
-  categories: FoodCategory[];
-  /** Cajas, cintas y góndolas de pasillo. */
   furniture: Furniture[];
 }

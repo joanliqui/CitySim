@@ -31,12 +31,12 @@ export interface ShopSubFactory {
   /** Factores de relleno del tramo/fondo disponibles. */
   fillFactors(): { front: number; depth: number };
   /** Interior de supermercado (solo el súper lo implementa). No consume el RNG principal. */
-  buildMarketInterior?(
-    x: number,
-    z: number,
-    w: number,
-    d: number,
-    faceX: number,
-    faceZ: number,
-  ): MarketInterior | undefined;
+  buildMarketInterior?(x: number, z: number, w: number, d: number, h: number, faceX: number, faceZ: number): MarketInterior | undefined;
+  /**
+   * Desplazamiento lateral (coordenada `along` de la fachada, 0 = centro) del
+   * centro de la puerta. Recibe también el fondo porque la posición puede
+   * depender de la proporción de la nave (súper alargado → puerta al extremo).
+   * Si no se implementa, la puerta va centrada.
+   */
+  doorAlong?(frontW: number, depthLen: number): number;
 }

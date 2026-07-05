@@ -21,7 +21,7 @@ import {
 } from '../city/CityModel';
 import { buildingFactories } from '../city/buildings/registry';
 import { officeShaft, stairLayout, type OfficeShaft } from '../city/buildings/interior/stairGeometry';
-import type { BuildingGeom, BuildingRenderCtx, BuildingRenderHelpers, RenderBuckets, RenderFurniture } from './buildings/BuildingRenderer';
+import type { BuildingGeom, BuildingRenderCtx, BuildingRenderHelpers, RenderBuckets, RenderFurniture, SlidingDoorPose } from './buildings/BuildingRenderer';
 import { buildingRenderers } from './buildings/renderRegistry';
 import type { TreeRenderBuckets, TreeRenderCtx, TreeRenderHelpers } from './vegetation/TreeRenderer';
 import { treeRenderers } from './vegetation/treeRenderRegistry';
@@ -74,6 +74,8 @@ export interface CityBuild {
   layers: CityBuildLayers;
   /** Controla la animacion de las puertas de fachada. */
   doors: DoorAnimator;
+  /** Controla las puertas correderas de cristal de los supermercados. */
+  marketDoors: SlidingDoorAnimator;
   /** Enciende/apaga el emisivo de cada lámpara de pie (acción del menú radial). */
   floorLamps: FloorLampController;
   /** Material compartido de las ventanas (cristal reflectante; DayNightCycle lo ilumina de noche). */
@@ -82,6 +84,9 @@ export interface CityBuild {
   lampMaterial: THREE.MeshBasicMaterial;
   /** Material de los conos de luz de las farolas (opacidad animada de noche). */
   lampConeMaterial: THREE.MeshBasicMaterial;
+  /** Material compartido de las bombillas colgantes del supermercado (encendidas
+   *  de día, apagadas de noche: al revés que las farolas; sin cono de luz). */
+  marketLampMaterial: THREE.MeshBasicMaterial;
 }
 
 export interface DoorPose {
@@ -145,6 +150,73 @@ export class DoorAnimator {
       if (Math.abs(next - before) < 0.0005) continue;
       this.current[i] = next;
       this.mesh.setMatrixAt(i, doorMatrix(this.poses[i], easeInOut(next), this.tmp));
+      dirty = true;
+    }
+    if (dirty) this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
+const SLIDING_DOOR_SPEED = 3.2;
+/** Fracción de `leafW` que recorre cada hoja al abrirse (queda casi escondida
+ *  tras el escaparate fijo contiguo, como una corredera automática real). */
+const SLIDING_DOOR_TRAVEL = 0.94;
+
+/**
+ * Anima las puertas correderas de cristal de los supermercados: dos hojas por
+ * puerta que se deslizan a los lados (en vez de girar, como `DoorAnimator`).
+ * Indexada por `buildingId` (no por posición), así el orden de creación de los
+ * supermercados no importa.
+ */
+export class SlidingDoorAnimator {
+  private readonly current: number[];
+  private readonly userTarget: number[];
+  private readonly autoTarget: boolean[];
+  private readonly indexOf = new Map<number, number>();
+  private readonly tmpA = new THREE.Matrix4();
+  private readonly tmpB = new THREE.Matrix4();
+
+  constructor(
+    private readonly mesh: THREE.InstancedMesh,
+    private readonly poses: SlidingDoorPose[],
+  ) {
+    poses.forEach((p, i) => this.indexOf.set(p.buildingId, i));
+    this.current = new Array(poses.length).fill(0);
+    this.userTarget = new Array(poses.length).fill(0);
+    this.autoTarget = new Array(poses.length).fill(false);
+  }
+
+  toggle(buildingId: number): void {
+    const i = this.indexOf.get(buildingId);
+    if (i === undefined) return;
+    this.userTarget[i] = this.userTarget[i] > 0.5 ? 0 : 1;
+  }
+
+  /** La simulación marca si un peatón está cruzando esta puerta (se resetea cada frame). */
+  setAuto(buildingId: number, open: boolean): void {
+    const i = this.indexOf.get(buildingId);
+    if (i !== undefined) this.autoTarget[i] = open;
+  }
+
+  clearAuto(): void {
+    this.autoTarget.fill(false);
+  }
+
+  isOpen(buildingId: number): boolean {
+    const i = this.indexOf.get(buildingId);
+    return i !== undefined && this.userTarget[i] > 0.5;
+  }
+
+  update(dt: number): void {
+    let dirty = false;
+    for (let i = 0; i < this.poses.length; i++) {
+      const target = this.autoTarget[i] || this.userTarget[i] > 0.5 ? 1 : 0;
+      const before = this.current[i];
+      const next = before + (target - before) * Math.min(1, dt * SLIDING_DOOR_SPEED);
+      if (Math.abs(next - before) < 0.0005) continue;
+      this.current[i] = next;
+      const eased = easeInOut(next);
+      this.mesh.setMatrixAt(i * 2, slidingDoorMatrix(this.poses[i], eased, -1, this.tmpA));
+      this.mesh.setMatrixAt(i * 2 + 1, slidingDoorMatrix(this.poses[i], eased, 1, this.tmpB));
       dirty = true;
     }
     if (dirty) this.mesh.instanceMatrix.needsUpdate = true;
@@ -452,7 +524,11 @@ export function buildCityMesh(model: CityModel): CityBuild {
   // Cristal: casi especular y oscuro, refleja el cielo vía scene.environment
   // (capturado en SceneRenderer). DayNightCycle le pone el brillo cálido de noche.
   const windowMaterial = new THREE.MeshStandardMaterial({ color: 0x37495c, metalness: 0.92, roughness: 0.12, envMapIntensity: 1.0 });
-  const { doors, floorLamps } = addBuildings(layers.buildings, layers.roofs, model, windowMaterial);
+  // Bombillas colgantes del supermercado: material PROPIO (no el de las farolas),
+  // porque se comportan al revés (encendidas de día, apagadas de noche). Creado
+  // ANTES de `addBuildings` para poder pasárselo.
+  const marketLampMaterial = new THREE.MeshBasicMaterial({ color: 0x35383d });
+  const { doors, marketDoors, floorLamps } = addBuildings(layers.buildings, layers.roofs, model, windowMaterial, marketLampMaterial);
   addBillboard(layers.buildings, model);
 
   /* ── Farolas: una a mitad de cada tramo de calle, en ambos lados ── */
@@ -570,7 +646,7 @@ export function buildCityMesh(model: CityModel): CityBuild {
   addParkBenches(layers.trees, buildMergedBlockBenches(model));
   addPlayItems(layers.trees, model);
 
-  return { group, layers, doors, floorLamps, windowMaterial, lampMaterial, lampConeMaterial };
+  return { group, layers, doors, marketDoors, floorLamps, windowMaterial, lampMaterial, lampConeMaterial, marketLampMaterial };
 }
 
 function addBillboard(group: THREE.Group, model: CityModel, textureUrl = BILLBOARD_TEXTURE_URL): void {
@@ -1343,7 +1419,8 @@ function addBuildings(
   roofGroup: THREE.Group,
   model: CityModel,
   windowMaterial: THREE.MeshStandardMaterial,
-): { doors: DoorAnimator; floorLamps: FloorLampController } {
+  marketLampMaterial: THREE.MeshBasicMaterial,
+): { doors: DoorAnimator; marketDoors: SlidingDoorAnimator; floorLamps: FloorLampController } {
   const bodyMats: THREE.Matrix4[] = [];
   const bodyColors: THREE.Color[] = [];
   const hipRoofMats: THREE.Matrix4[] = [];
@@ -1359,7 +1436,18 @@ function addBuildings(
   const awningColors: THREE.Color[] = [];
   const signMats: THREE.Matrix4[] = [];
   const signColors: THREE.Color[] = [];
-  const marketGlassMats: THREE.Matrix4[] = []; // cristal transparente de puertas/escaparate del súper
+  const marketGlassMats: THREE.Matrix4[] = []; // cristal transparente fijo del escaparate del súper
+  const marketDoorLeafMats: THREE.Matrix4[] = []; // hojas correderas (estado inicial cerrado)
+  const marketDoorPoses: SlidingDoorPose[] = []; // una por supermercado, para animarlas
+  const marketLampMats: THREE.Matrix4[] = []; // bombillas colgantes (material propio: marketLampMaterial)
+  const stainedGlassMats: THREE.Matrix4[] = []; // vidrieras laterales de colores
+  const stainedGlassColors: THREE.Color[] = [];
+  const checkoutMats: THREE.Matrix4[] = [];
+  const conveyorMats: THREE.Matrix4[] = [];
+  const marketCeilingMats: THREE.Matrix4[] = []; // placa del falso techo (va al roofGroup)
+  const marketCeilingLineMats: THREE.Matrix4[] = []; // retícula fina entre baldosas
+  const produceMats: THREE.Matrix4[] = []; // montones de fruta/verdura de la isla
+  const produceColors: THREE.Color[] = [];
   const doorMats: THREE.Matrix4[] = [];
   const windowMats: THREE.Matrix4[] = []; // cristal
   const windowFrameMats: THREE.Matrix4[] = []; // marco + montantes + antepecho
@@ -1437,7 +1525,9 @@ function addBuildings(
     parapetMats, roofBoxMats, roofTankMats,
     awningMats, awningColors,
     signMats, signColors,
-    marketGlassMats,
+    marketGlassMats, marketDoorLeafMats, marketDoorPoses,
+    marketLampMats, stainedGlassMats, stainedGlassColors, checkoutMats, conveyorMats,
+    marketCeilingMats, marketCeilingLineMats, produceMats, produceColors,
     windowMats, windowFrameMats,
     balconySlabMats, balconyRailMats, corniceMats,
     partitionMats, floorMats,
@@ -1452,7 +1542,7 @@ function addBuildings(
   // Helpers de geometría inyectados (definidos en este módulo) + paletas.
   const helpers: BuildingRenderHelpers = {
     compose, composeYaw,
-    addFlatRoof, addRoofFixture, addFrontBalconies, addFacadeBands, addWindowRow, addHouseShell, addBed,
+    addFlatRoof, addRoofFixture, addFrontBalconies, addFacadeBands, addWindowRow, addHouseShell, addMarketShell, addBed,
     addNightstand, addWardrobe, addDresser, addRug, addShower, addBathtub, addSink, addToilet, addBathVanity, addBathShelf, addTowelStack,
     addDiningTable, addDiningChair, addSideboard, addPottedPlant,
     addUpholstered, addTv, addCoffeeTable, addBookshelf, addFloorLamp,
@@ -1487,10 +1577,17 @@ function addBuildings(
     // Contenedores de reciclaje en algunos puntos repartidos por los barrios.
     if (b.id % 6 === 2) addBinsCluster(b, binBodyMats, binBodyColors, binLidMats, binLidColors);
 
-    // Puerta en la fachada.
+    // Puerta batiente genérica en la fachada. Los supermercados tienen su PROPIA
+    // puerta corredera (ver MarketRenderer/marketDoorPoses); aquí se les reserva
+    // un hueco degenerado (tamaño ~0, invisible) solo para no desalinear los
+    // índices posicionales de `doorPoses` (que `DoorAnimator` y
+    // `collectDoorInteractables` asumen 1:1 con `model.buildings`).
+    const isMarket = b.type === 'shop' && b.shopKind === 'supermarket';
     const dx = b.x + b.faceX * (geom.frontDist + 0.06);
     const dz = b.z + b.faceZ * (geom.frontDist + 0.06);
-    const door: DoorPose = { x: dx, z: dz, y: 1.15, yaw: geom.faceAngle, width: 1.5, height: 2.3, depth: 0.14, hingeSide: b.id % 2 === 0 ? -1 : 1 };
+    const door: DoorPose = isMarket
+      ? { x: dx, z: dz, y: 0, yaw: geom.faceAngle, width: 0.001, height: 0.001, depth: 0.001, hingeSide: -1 }
+      : { x: dx, z: dz, y: 1.15, yaw: geom.faceAngle, width: 1.5, height: 2.3, depth: 0.14, hingeSide: b.id % 2 === 0 ? -1 : 1 };
     doorPoses.push(door);
     doorMats.push(doorMatrix(door, 0));
   }
@@ -1578,13 +1675,33 @@ function addBuildings(
       colors: flatRoofColors,
     }),
   );
+  // Falso techo registrable del supermercado: baldosas blancas + retícula fina
+  // gris. Va en el roofGroup para que "Quitar tejados" también lo retire y deje
+  // ver el interior desde arriba.
+  roofGroup.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xf4f4f0 }), marketCeilingMats, { receiveShadow: true }));
+  roofGroup.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x8b8f92 }), marketCeilingLineMats));
   roofGroup.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x5a6268 }), parapetMats, { castShadow: true }));
   roofGroup.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x4c5358 }), roofBoxMats, { castShadow: true }));
   roofGroup.add(instanced(new THREE.CylinderGeometry(0.5, 0.5, 1, 10), new THREE.MeshLambertMaterial({ color: 0x707b80 }), roofTankMats, { castShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), awningMats, { colors: awningColors }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), signMats, { colors: signColors }));
-  // Cristal de puertas/escaparate del supermercado: translúcido de verdad.
+  // Cristal fijo del escaparate del supermercado (no anima): translúcido de verdad.
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xbfe0ea, transparent: true, opacity: 0.28 }), marketGlassMats));
+  // Hojas correderas de la puerta del supermercado: mismo cristal, pero en su
+  // propia InstancedMesh porque `SlidingDoorAnimator` reescribe sus matrices cada frame.
+  const marketDoorMesh = instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xbfe0ea, transparent: true, opacity: 0.28 }), marketDoorLeafMats);
+  group.add(marketDoorMesh);
+  // Vidrieras laterales del supermercado: cristal de colores (color por instancia).
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 }), stainedGlassMats, { colors: stainedGlassColors }));
+  // Bombillas colgantes del techo del supermercado: material PROPIO (compartido,
+  // no clonado): `DayNightCycle` las enciende de DÍA y las apaga de noche, al
+  // revés que las farolas. Sin cono de luz (solo la bombilla).
+  group.add(instanced(new THREE.SphereGeometry(0.5, 10, 8), marketLampMaterial, marketLampMats));
+  // Interior del supermercado: mostradores de caja y cinta transportadora.
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xd8d8d2 }), checkoutMats, { castShadow: true, receiveShadow: true }));
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x2e3033 }), conveyorMats, { castShadow: true }));
+  // Sección de frutería: cajas verdes + montones de fruta/verdura (color por instancia).
+  group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), produceMats, { castShadow: true, receiveShadow: true, colors: produceColors }));
   const doorMesh = instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x4a3b2f }), doorMats);
   group.add(doorMesh);
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x6b6258 }), balconySlabMats, { castShadow: true }));
@@ -1604,7 +1721,11 @@ function addBuildings(
   // Contenedores de reciclaje (cuerpo y tapa coloreados por instancia).
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), binBodyMats, { castShadow: true, colors: binBodyColors }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff }), binLidMats, { castShadow: true, colors: binLidColors }));
-  return { doors: new DoorAnimator(doorMesh, doorPoses), floorLamps };
+  return {
+    doors: new DoorAnimator(doorMesh, doorPoses),
+    marketDoors: new SlidingDoorAnimator(marketDoorMesh, marketDoorPoses),
+    floorLamps,
+  };
 }
 
 type RenderBuilding = CityModel['buildings'][number];
@@ -1749,6 +1870,63 @@ function addHouseShell(
   // Tabiques interiores con su hueco de puerta.
   for (const wall of interior.walls) {
     addWallBoxes(pushPartition, wall.ax, wall.az, wall.bx, wall.bz, b.h, t, wall.doorAt, wall.doorHalf);
+  }
+}
+
+/**
+ * Casco hueco de un supermercado (nave de una planta): suelo + cuatro muros
+ * perimetrales. La fachada lleva un hueco REAL de puerta (`doorHalf` a cada
+ * lado, hasta `doorTop`); si se pasa `sideWindow`, los DOS muros laterales
+ * llevan cada uno el mismo hueco largo (misma `s0/s1/y0/y1`), para la vidriera.
+ * El muro trasero siempre es macizo.
+ */
+function addMarketShell(
+  b: RenderBuilding,
+  doorHalf: number,
+  doorTop: number,
+  /** Desplazamiento lateral del centro de la puerta (tangente tx=faceZ, tz=−faceX). */
+  doorAlong: number,
+  wallT: number,
+  sideWindow: { s0: number; s1: number; y0: number; y1: number } | null,
+  bodyMats: THREE.Matrix4[],
+  bodyColors: THREE.Color[],
+  floorMats: THREE.Matrix4[],
+): void {
+  const color = new THREE.Color(BUILDING_PALETTES.supermarket[b.colorIdx % 6]);
+  const pushBody = (m: THREE.Matrix4) => {
+    bodyMats.push(m);
+    bodyColors.push(color);
+  };
+  const t = wallT;
+  const sideOpenings: WallOpening[] = sideWindow ? [sideWindow] : [];
+
+  floorMats.push(compose(b.x, b.z, 0.06, b.w - 0.02, 0.12, b.d - 0.02));
+
+  const doorOpening: WallOpening[] = [];
+  if (b.faceZ !== 0) {
+    const zFront = b.z + b.faceZ * (b.d / 2 - t / 2);
+    const zBack = b.z - b.faceZ * (b.d / 2 - t / 2);
+    // `s` del muro frontal crece hacia +X; la tangente de fachada es tx=faceZ.
+    const sDoor = b.w / 2 + b.faceZ * doorAlong;
+    doorOpening.push({ s0: sDoor - doorHalf, s1: sDoor + doorHalf, y0: 0, y1: doorTop });
+    addWallWithHoles(pushBody, b.x - b.w / 2, zFront, b.x + b.w / 2, zFront, b.h, t, doorOpening);
+    addWallWithHoles(pushBody, b.x - b.w / 2, zBack, b.x + b.w / 2, zBack, b.h, t, []);
+    for (const sgn of [-1, 1]) {
+      const xs = b.x + sgn * (b.w / 2 - t / 2);
+      addWallWithHoles(pushBody, xs, b.z - b.d / 2 + t, xs, b.z + b.d / 2 - t, b.h, t, sideOpenings);
+    }
+  } else {
+    const xFront = b.x + b.faceX * (b.w / 2 - t / 2);
+    const xBack = b.x - b.faceX * (b.w / 2 - t / 2);
+    // `s` del muro frontal crece hacia +Z; la tangente de fachada es tz=−faceX.
+    const sDoor = b.d / 2 - b.faceX * doorAlong;
+    doorOpening.push({ s0: sDoor - doorHalf, s1: sDoor + doorHalf, y0: 0, y1: doorTop });
+    addWallWithHoles(pushBody, xFront, b.z - b.d / 2, xFront, b.z + b.d / 2, b.h, t, doorOpening);
+    addWallWithHoles(pushBody, xBack, b.z - b.d / 2, xBack, b.z + b.d / 2, b.h, t, []);
+    for (const sgn of [-1, 1]) {
+      const zs = b.z + sgn * (b.d / 2 - t / 2);
+      addWallWithHoles(pushBody, b.x - b.w / 2 + t, zs, b.x + b.w / 2 - t, zs, b.h, t, sideOpenings);
+    }
   }
 }
 
@@ -3705,6 +3883,19 @@ function doorMatrix(p: DoorPose, open01: number, out = new THREE.Matrix4()): THR
 
 function easeInOut(t: number): number {
   return t * t * (3 - 2 * t);
+}
+
+/** Transforma una hoja corredera: se traslada a lo largo de la tangente de la
+ *  fachada (`tx/tz`); `side` (-1 izquierda, 1 derecha) fija hacia qué lado. */
+function slidingDoorMatrix(p: SlidingDoorPose, open01: number, side: -1 | 1, out = new THREE.Matrix4()): THREE.Matrix4 {
+  const along = side * (p.leafW / 2 + open01 * p.leafW * SLIDING_DOOR_TRAVEL);
+  const x = p.x + p.tx * along;
+  const z = p.z + p.tz * along;
+  return out.compose(
+    new THREE.Vector3(x, p.y, z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(0, p.yaw, 0)),
+    new THREE.Vector3(p.leafW, p.height, p.depth),
+  );
 }
 
 /** Caja (de largo `len` en su eje local +Y) tendida entre dos puntos del mundo. */

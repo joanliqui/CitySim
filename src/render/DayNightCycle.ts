@@ -26,6 +26,9 @@ const WINDOW_GLOW = new THREE.Color(0xffb347);
 const WINDOW_SHEEN = new THREE.Color(0x8fc3e8);
 const LAMP_OFF = new THREE.Color(0x41454c);
 const LAMP_ON = new THREE.Color(0xffe9a3);
+/** Luces del supermercado: al revés que las farolas (encendidas de DÍA, apagadas de noche). */
+const MARKET_LAMP_OFF = new THREE.Color(0x35383d);
+const MARKET_LAMP_ON = new THREE.Color(0xfff2d0);
 
 export interface DayNightTargets {
   scene: THREE.Scene;
@@ -39,6 +42,9 @@ export interface DayNightTargets {
   lampMaterial: THREE.MeshBasicMaterial;
   /** Material de los conos de luz de las farolas. */
   lampConeMaterial: THREE.MeshBasicMaterial;
+  /** Material compartido de las bombillas colgantes del supermercado (encendidas
+   *  de día, apagadas de noche: al revés que las farolas). */
+  marketLampMaterial: THREE.MeshBasicMaterial;
   /** Pase de bloom: más intenso de noche. */
   bloom: UnrealBloomPass;
   lightDistance: number;
@@ -101,7 +107,7 @@ export class DayNightCycle {
     this.horizon.copy(HOR_NIGHT).lerp(HOR_DUSK, t1).lerp(HOR_DAY, t2);
     this.sunColor.copy(SUN_LOW).lerp(SUN_DAY, t2);
 
-    const { scene, sun, moon, hemi, sky, windowMaterial, lampMaterial, lampConeMaterial, bloom, lightDistance } = this.t;
+    const { scene, sun, moon, hemi, sky, windowMaterial, lampMaterial, lampConeMaterial, marketLampMaterial, bloom, lightDistance } = this.t;
 
     sun.intensity = 2.4 * smoothstep(0.0, 0.28, e);
     sun.color.copy(this.sunColor);
@@ -129,6 +135,11 @@ export class DayNightCycle {
 
     lampMaterial.color.copy(this.tmpColor.copy(LAMP_OFF).lerp(LAMP_ON, night)).multiplyScalar(1 + night * 1.2);
     lampConeMaterial.opacity = night * 0.14;
+
+    // Luces del supermercado: encendidas de día, apagadas de noche (al revés que
+    // las farolas). Sin cono de luz propio (solo la bombilla).
+    const day = 1 - night;
+    marketLampMaterial.color.copy(this.tmpColor.copy(MARKET_LAMP_OFF).lerp(MARKET_LAMP_ON, day)).multiplyScalar(1 + day * 1.2);
 
     // Bloom cinematográfico: sutil de día, marcado de noche.
     bloom.strength = 0.13 + 0.28 * night;

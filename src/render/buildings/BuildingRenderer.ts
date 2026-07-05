@@ -9,6 +9,27 @@ export type RenderBuilding = CityModel['buildings'][number];
 export type RenderFurniture = NonNullable<RenderBuilding['interior']>['furniture'][number];
 
 /**
+ * Pose de una puerta CORREDERA de cristal (supermercado): dos hojas que se
+ * deslizan hacia los lados a lo largo de la fachada (en vez de girar sobre una
+ * bisagra, como la puerta genérica). `tx/tz` es la tangente unitaria de la
+ * fachada (dirección de deslizamiento); cada hoja mide `leafW` cerrada y viaja
+ * a lo largo de esa tangente al abrirse. Ligada a `buildingId` (no a un índice
+ * posicional) para que `SlidingDoorAnimator` no dependa del orden de creación.
+ */
+export interface SlidingDoorPose {
+  buildingId: number;
+  x: number;
+  z: number;
+  y: number;
+  yaw: number;
+  tx: number;
+  tz: number;
+  leafW: number;
+  height: number;
+  depth: number;
+}
+
+/**
  * Todos los acumuladores de matrices/colores del render de edificios. Cada uno
  * se vuelca al final en una `InstancedMesh` (una malla por geometría). Los
  * renderers por tipo empujan aquí; el ensamblado vive en `CityMesh`.
@@ -29,8 +50,30 @@ export interface RenderBuckets {
   awningColors: THREE.Color[];
   signMats: THREE.Matrix4[];
   signColors: THREE.Color[];
-  /** Cristal transparente de las puertas y escaparate del supermercado. */
+  /** Cristal transparente FIJO del escaparate del supermercado (no anima). */
   marketGlassMats: THREE.Matrix4[];
+  /** Matrices iniciales (cerradas) de las hojas correderas; una `InstancedMesh`
+   *  aparte porque `SlidingDoorAnimator` las reescribe cada frame por índice. */
+  marketDoorLeafMats: THREE.Matrix4[];
+  /** Una pose por supermercado, para animar sus dos hojas correderas. */
+  marketDoorPoses: SlidingDoorPose[];
+  /** Bombillas colgantes del techo del supermercado (material propio, encendidas
+   *  de DÍA y apagadas de noche vía bloom: al revés que las farolas). */
+  marketLampMats: THREE.Matrix4[];
+  /** Cristales de colores de las vidrieras laterales del supermercado (color por instancia). */
+  stainedGlassMats: THREE.Matrix4[];
+  stainedGlassColors: THREE.Color[];
+  /** Mostradores de las cajas registradoras del supermercado. */
+  checkoutMats: THREE.Matrix4[];
+  /** Cintas transportadoras de las cajas. */
+  conveyorMats: THREE.Matrix4[];
+  /** Placa del falso techo registrable del supermercado (baldosas blancas). */
+  marketCeilingMats: THREE.Matrix4[];
+  /** Retícula fina entre baldosas del falso techo del supermercado. */
+  marketCeilingLineMats: THREE.Matrix4[];
+  /** Montones de fruta/verdura de la isla de entrada (color por instancia). */
+  produceMats: THREE.Matrix4[];
+  produceColors: THREE.Color[];
   windowMats: THREE.Matrix4[];
   windowFrameMats: THREE.Matrix4[];
   balconySlabMats: THREE.Matrix4[];
@@ -161,6 +204,27 @@ export interface BuildingRenderHelpers {
     floorMats: THREE.Matrix4[],
     windowMats: THREE.Matrix4[],
     windowFrameMats: THREE.Matrix4[],
+  ): void;
+  /**
+   * Casco hueco de un supermercado (nave de una planta): suelo + cuatro muros
+   * perimetrales, con un hueco REAL de puerta en la fachada, desplazado
+   * `doorAlong` del centro (los otros tres muros son macizos). `doorHalf`/
+   * `doorTop`/`doorAlong` deben coincidir con las hojas correderas y el marco
+   * que dibuja `MarketRenderer`.
+   */
+  addMarketShell(
+    b: RenderBuilding,
+    doorHalf: number,
+    doorTop: number,
+    /** Desplazamiento lateral del centro de la puerta a lo largo de la fachada. */
+    doorAlong: number,
+    wallT: number,
+    /** Hueco largo (real) en AMBOS muros laterales, en la coordenada `s` propia de
+     *  cada muro (0 en un extremo, `depth-2*wallT` en el otro). `null` = sin hueco. */
+    sideWindow: { s0: number; s1: number; y0: number; y1: number } | null,
+    bodyMats: THREE.Matrix4[],
+    bodyColors: THREE.Color[],
+    floorMats: THREE.Matrix4[],
   ): void;
   addBed(
     f: { x: number; z: number; w: number; d: number; headX: number; headZ: number; double: boolean },

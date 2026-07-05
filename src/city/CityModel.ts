@@ -174,7 +174,7 @@ export interface Building {
   interior?: HouseInterior;
   /** Solo edificios altos: rellano + escaleras + una vivienda por planta. */
   officeInterior?: OfficeInterior;
-  /** Solo supermercados: zona de cajas + pasillos por sección. */
+  /** Solo supermercados: zona de fruta, pasillos, estantería de fondo y cajas. */
   marketInterior?: MarketInterior;
 }
 

@@ -1,4 +1,5 @@
 import { Rng } from '../../../core/Rng';
+import { makeMarketInterior, marketDoorAlong } from '../interior/marketInterior';
 import type { MarketInterior } from '../interior/types';
 import type { DistrictSpec, Footprint } from '../BuildingFactory';
 import type { ShopKind } from '../types/BuildingTypes';
@@ -26,16 +27,13 @@ export class SupermarketSubFactory implements ShopSubFactory {
     return { front: 0.95, depth: 0.9 };
   }
 
-  buildMarketInterior(
-    _x: number,
-    _z: number,
-    _w: number,
-    _d: number,
-    _faceX: number,
-    _faceZ: number,
-  ): MarketInterior | undefined {
-    // El interior (cajas + pasillos) llega en el siguiente paso; por ahora la nave
-    // se renderiza como caja maciza.
-    return undefined;
+  buildMarketInterior(x: number, z: number, w: number, d: number, h: number, faceX: number, faceZ: number): MarketInterior {
+    return makeMarketInterior(x, z, w, d, faceX, faceZ, h);
+  }
+
+  /** Puerta a un lado de la fachada: sobre el pasillo de la frutería o, en
+   *  naves alargadas (layout girado), pegada al extremo de la entrada. */
+  doorAlong(frontW: number, depthLen: number): number {
+    return marketDoorAlong(frontW, depthLen);
   }
 }

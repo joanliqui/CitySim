@@ -2,7 +2,7 @@ import { generateCity } from '../city/CityGenerator';
 import { apartmentCount, type Furniture } from '../city/CityModel';
 import type * as THREE from 'three';
 import { CameraRig } from '../render/CameraRig';
-import { buildCityMesh, type DoorAnimator } from '../render/CityMesh';
+import { buildCityMesh, type DoorAnimator, type SlidingDoorAnimator } from '../render/CityMesh';
 import type { FloorLampController } from '../render/FloorLamps';
 import { DayNightCycle } from '../render/DayNightCycle';
 import { Sky } from '../render/Sky';
@@ -23,7 +23,7 @@ import { Hud, type AgentDetail, type AgentInfo } from '../ui/Hud';
 import { Picking, type PickResult } from '../ui/Picking';
 import { RadialMenu } from '../ui/RadialMenu';
 import { ActionRegistry } from '../interaction/ActionRegistry';
-import { collectDoorInteractables } from '../interaction/doorInteractables';
+import { collectDoorInteractables, collectMarketDoorInteractables } from '../interaction/doorInteractables';
 import { InteractableRegistry } from '../interaction/InteractableRegistry';
 import { InteractionController } from '../interaction/InteractionController';
 import { collectFloorLampInteractables, collectFurnitureInteractables } from '../interaction/furnitureInteractables';
@@ -104,6 +104,7 @@ export class App {
   private readonly lightMesh: TrafficLightMesh;
   private readonly dayNight: DayNightCycle;
   private readonly doors: DoorAnimator;
+  private readonly marketDoors: SlidingDoorAnimator;
   private readonly floorLamps: FloorLampController;
   private readonly buildObjects: Record<string, THREE.Object3D[]>;
   private readonly billboard: THREE.Object3D | null;
@@ -122,6 +123,7 @@ export class App {
     this.renderer = new SceneRenderer(canvas, model.halfExtent);
     const city = buildCityMesh(model);
     this.doors = city.doors;
+    this.marketDoors = city.marketDoors;
     this.floorLamps = city.floorLamps;
     this.renderer.scene.add(city.group);
     this.billboard = city.group.getObjectByName('billboard') ?? null;
@@ -139,6 +141,7 @@ export class App {
       windowMaterial: city.windowMaterial,
       lampMaterial: city.lampMaterial,
       lampConeMaterial: city.lampConeMaterial,
+      marketLampMaterial: city.marketLampMaterial,
       bloom: this.renderer.bloom,
       lightDistance: this.renderer.lightDistance,
     });
@@ -226,6 +229,7 @@ export class App {
     // Menú radial contextual (clic derecho): objetos interactuables + sus acciones.
     const interactables = new InteractableRegistry();
     interactables.addAll(collectDoorInteractables(model));
+    interactables.addAll(collectMarketDoorInteractables(model));
     interactables.addAll(collectFurnitureInteractables(model));
     interactables.addAll(collectFloorLampInteractables(this.floorLamps.placements));
     const actions = new ActionRegistry();
@@ -240,6 +244,21 @@ export class App {
           icon: '▯',
           run: () => {
             if (typeof doorIndex === 'number') this.doors.toggle(doorIndex);
+          },
+        },
+      ];
+    });
+    actions.register('marketDoor', (interactable) => {
+      const data = interactable.data as { buildingId?: number } | undefined;
+      const buildingId = data?.buildingId;
+      const open = typeof buildingId === 'number' && this.marketDoors.isOpen(buildingId);
+      return [
+        {
+          id: 'toggle',
+          label: open ? 'Cerrar' : 'Abrir',
+          icon: '▯',
+          run: () => {
+            if (typeof buildingId === 'number') this.marketDoors.toggle(buildingId);
           },
         },
       ];
@@ -431,11 +450,18 @@ export class App {
       this.customPedMesh.update(alpha, now, this.renderer.camera);
       // Puertas de calle: abrir las que algún peatón está cruzando este frame
       // (además del toggle manual del menú). El índice de puerta = building.id.
+      // Las correderas de supermercado usan la misma señal (`setAuto` no hace
+      // nada si `building.id` no es un supermercado, ver `SlidingDoorAnimator`).
       this.doors.clearAuto();
+      this.marketDoors.clearAuto();
       for (const ped of this.sim.pedestrianSystem.pedestrians) {
-        if (ped.facadeDoorOpen) this.doors.setAuto(ped.building.id, true);
+        if (ped.facadeDoorOpen) {
+          this.doors.setAuto(ped.building.id, true);
+          this.marketDoors.setAuto(ped.building.id, true);
+        }
       }
       this.doors.update(realDt);
+      this.marketDoors.update(realDt);
       this.lightMesh.update(this.clock.time);
       this.dayNight.update(this.clock.time);
       // Refrescar el reflejo del cielo de vez en cuando (el cielo cambia despacio).

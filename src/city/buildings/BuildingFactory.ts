@@ -191,6 +191,13 @@ export abstract class BuildingFactory {
       }
     }
 
+    // Desplazamiento lateral de la puerta (si el subtipo lo define, p. ej. el
+    // súper la pone a un lado): se aplica sobre la tangente de la fachada
+    // (tx=faceZ, tz=−faceX), la misma convención que usa el interior/render.
+    const doorOff = variant?.doorAlong?.(front, depth) ?? 0;
+    doorX += faceZ * doorOff;
+    doorZ += -faceX * doorOff;
+
     if (!insideBuildableRect(x, z, w, d, buildable)) return null;
     if (overlapsClearance(x, z, w, d, clearances)) return null;
     if (!skipOverlapBuildings && overlapsBuilding(x, z, w, d, buildings)) return null;
@@ -199,7 +206,7 @@ export abstract class BuildingFactory {
     const approachDist = CORRIDOR_HALF + 0.6;
     const interior = variant ? undefined : this.buildInterior(x, z, w, d, faceX, faceZ);
     const officeInterior = variant ? undefined : this.buildOfficeInterior(x, z, w, d, fp.h, faceX, faceZ);
-    const marketInterior = variant?.buildMarketInterior?.(x, z, w, d, faceX, faceZ);
+    const marketInterior = variant?.buildMarketInterior?.(x, z, w, d, fp.h, faceX, faceZ);
     return {
       id: 0,
       type: this.type,
