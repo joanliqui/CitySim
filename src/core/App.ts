@@ -13,13 +13,16 @@ import { VehicleMesh } from '../render/VehicleMesh';
 import { Simulation } from '../sim/Simulation';
 import type { Pedestrian, Vehicle } from '../sim/agents';
 import { BIG_FIVE } from '../sim/personality';
+import { taskDefs } from '../sim/routine/registry';
+import { BOOST_CAP, type TaskCtx } from '../sim/routine/TaskDef';
 import { SOCIAL_CLASS_LABEL } from '../sim/socialClass';
 import { CustomPedestrianMesh } from '../render/CustomPedestrianMesh';
+import { GhostPedestrian } from '../render/GhostPedestrian';
 import { BuildPanel, type BuildPass } from '../ui/BuildPanel';
 import { CameraPanel } from '../ui/CameraPanel';
 import { CharacterCreator } from '../ui/CharacterCreator';
 import { FridgePopup } from '../ui/FridgePopup';
-import { Hud, type AgentDetail, type AgentInfo } from '../ui/Hud';
+import { Hud, type AgentDetail, type AgentInfo, type RoutineTaskInfo } from '../ui/Hud';
 import { Picking, type PickResult } from '../ui/Picking';
 import { RadialMenu } from '../ui/RadialMenu';
 import { ActionRegistry } from '../interaction/ActionRegistry';
@@ -100,6 +103,7 @@ export class App {
   private readonly vehicleMesh: VehicleMesh;
   private readonly pedestrianMesh: PedestrianMesh;
   private readonly customPedMesh: CustomPedestrianMesh;
+  private readonly ghost: GhostPedestrian;
   private readonly creator: CharacterCreator;
   private readonly lightMesh: TrafficLightMesh;
   private readonly dayNight: DayNightCycle;
@@ -149,8 +153,9 @@ export class App {
     this.vehicleMesh = new VehicleMesh(this.sim.vehicleSystem.vehicles);
     this.pedestrianMesh = new PedestrianMesh(this.sim.pedestrianSystem.pedestrians);
     this.customPedMesh = new CustomPedestrianMesh(this.sim.pedestrianSystem.pedestrians);
+    this.ghost = new GhostPedestrian(this.sim.pedestrianSystem.pedestrians, this.pedestrianMesh, this.customPedMesh);
     this.lightMesh = new TrafficLightMesh(this.sim.lights, this.sim.model.roundabouts, [this.sim.model.park, ...this.sim.model.mergedBlocks]);
-    this.renderer.scene.add(this.vehicleMesh.group, this.pedestrianMesh.group, this.customPedMesh.group, this.lightMesh.group);
+    this.renderer.scene.add(this.vehicleMesh.group, this.pedestrianMesh.group, this.customPedMesh.group, this.ghost.group, this.lightMesh.group);
     this.buildObjects = {
       ground: [city.layers.ground],
       roads: [city.layers.roads],
@@ -307,18 +312,21 @@ export class App {
     this.selected = result;
     if (!result) {
       this.rig.follow(null);
+      this.ghost.setTarget(null);
       this.hud.showAgent(null);
       return;
     }
-    const agent =
-      result.kind === 'vehicle'
-        ? this.sim.vehicleSystem.vehicles[result.index]
-        : this.sim.pedestrianSystem.pedestrians[result.index];
-    // Se puede seleccionar a quien está dentro de un edificio (ver su ficha), pero
-    // la cámara no lo sigue hasta dentro: solo se sigue a agentes a la vista.
-    const insidePed = result.kind === 'pedestrian' && agent.state === 'inside';
-    if (insidePed) this.rig.follow(null);
-    else this.rig.follow(() => ({ x: agent.x, z: agent.z }), closeUp);
+    // Al peatón seguido se le ve a través de la geometría (silueta punteada de
+    // GhostPedestrian), así que la cámara le sigue también dentro de los edificios.
+    if (result.kind === 'pedestrian') {
+      const ped = this.sim.pedestrianSystem.pedestrians[result.index];
+      this.ghost.setTarget(result.index);
+      this.rig.follow(() => ({ x: ped.x, z: ped.z, y: ped.y }), closeUp);
+    } else {
+      const vehicle = this.sim.vehicleSystem.vehicles[result.index];
+      this.ghost.setTarget(null);
+      this.rig.follow(() => ({ x: vehicle.x, z: vehicle.z }), closeUp);
+    }
   }
 
   private applyBuildLayers(visibleLayers: Set<string>): void {
@@ -392,7 +400,7 @@ export class App {
       inside: `Dentro de ${dest}`,
     };
     const energyPct = Math.round(p.energy);
-    const needs = `🍽️ ${Math.round(p.food)}% · 💧 ${Math.round(p.hydration)}%`;
+    const needs = `🍽️ ${Math.round(p.food)}% · 💧 ${Math.round(p.hydration)}% · 🧼 ${Math.round(p.hygiene)}%`;
     const status = p.eating ? 'Comiendo' : p.sleeping ? 'Durmiendo' : statusMap[p.state];
     const detail = p.sleeping
       ? `Durmiendo · energía ${energyPct}% · ${needs}`
@@ -404,7 +412,8 @@ export class App {
       title: `Peatón #${p.id + 1}`,
       status,
       detail,
-      details: homeDetails(p),
+      details: [taskDetail(p), ...homeDetails(p)],
+      routine: routineInfo(p, this.sim.pedestrianSystem.routineCtx(this.dayNight.hour)),
       stats: BIG_FIVE.map((t) => ({ label: t.label, value: p.personality[t.id] })),
       // "Comer" solo si está despierto (dormido no puede ir a comer).
       actions: [
@@ -419,6 +428,11 @@ export class App {
     if (!this.selected || this.selected.kind !== 'pedestrian') return;
     if (id === 'go-home') this.sim.pedestrianSystem.goHome(this.selected.index);
     else if (id === 'eat') this.sim.pedestrianSystem.goEat(this.selected.index);
+  }
+
+  /** Utilidad de depuración/demo: fuerza una lluvia de barro unos segundos de sim. */
+  mudRain(seconds = 10): void {
+    this.sim.weather.forceMudRain(this.clock.time, seconds);
   }
 
   /** Utilidad de depuración: coloca la cámara mirando a un punto. */
@@ -448,6 +462,7 @@ export class App {
       this.vehicleMesh.update(alpha);
       this.pedestrianMesh.update(alpha, now);
       this.customPedMesh.update(alpha, now, this.renderer.camera);
+      this.ghost.update();
       // Puertas de calle: abrir las que algún peatón está cruzando este frame
       // (además del toggle manual del menú). El índice de puerta = building.id.
       // Las correderas de supermercado usan la misma señal (`setAuto` no hace
@@ -486,6 +501,76 @@ export class App {
     };
     requestAnimationFrame(frame);
   }
+}
+
+/** Etiquetas legibles de las fases internas de las tareas. */
+const PHASE_LABEL: Record<string, string> = {
+  ir: 'yendo',
+  comiendo: 'comiendo',
+  comprando: 'comprando',
+  volver: 'volviendo a casa',
+  aproxima: 'acercándose',
+  accion: 'en ello',
+  vuelve: 'terminando',
+};
+
+/** Estados de tarea en texto legible (el resto se muestran tal cual). */
+const STATE_LABEL: Record<string, string> = { activa: 'en curso' };
+
+/**
+ * Rutina del peatón formateada y ORDENADA para el panel: primero la tarea en
+ * curso, después las pendientes por puntuación actual (la subasta tal cual),
+ * y al final las ya hechas y las fallidas del día.
+ */
+function routineInfo(p: Pedestrian, ctx: TaskCtx): RoutineTaskInfo[] {
+  const order: Record<string, number> = { activa: 0, pendiente: 1, hecha: 2, fallida: 3 };
+  const items = p.routine.tasks.map((t) => {
+    const def = taskDefs[t.kind];
+    const score = p.routine.score(t, p, ctx, t.state === 'activa');
+    const parts: string[] = [];
+    if (t.state === 'activa' || t.state === 'pendiente') {
+      parts.push(`base ${def.base}`);
+      const urg = def.urgency(t, p, ctx);
+      if (urg >= 0.5) parts.push(`urgencia +${Math.round(urg)}`);
+      const boost = Math.min(t.boost, BOOST_CAP);
+      if (boost > 0) parts.push(`boost +${Math.round(boost)}`);
+      if (t.stimulus >= 0.5) parts.push(`estímulo +${Math.round(t.stimulus)}`);
+      const bias = def.bias?.(p.personality) ?? 0;
+      if (Math.abs(bias) >= 0.5) parts.push(`carácter ${bias > 0 ? '+' : ''}${Math.round(bias)}`);
+    }
+    if (t.misses > 0) parts.push(`pospuesta ×${t.misses}`);
+    const phase = (t.data as { phase?: string }).phase;
+    if (t.state === 'activa' && phase) parts.push(PHASE_LABEL[phase] ?? phase);
+    return {
+      ord: order[t.state] ?? 4,
+      info: {
+        icon: def.icon,
+        label: def.describe(t),
+        state: STATE_LABEL[t.state] ?? t.state,
+        stateClass: t.state,
+        window: t.window ? `${hourText(t.window.start)}–${hourText(t.window.end)}` : null,
+        score,
+        detail: parts.join(' · '),
+      },
+    };
+  });
+  items.sort((a, b) => a.ord - b.ord || (b.info.score ?? -1) - (a.info.score ?? -1));
+  return items.map((it) => it.info);
+}
+
+/** "13.5" → "13:30". */
+function hourText(h: number): string {
+  const hh = Math.floor(h);
+  const mm = Math.round((h - hh) * 60);
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+/** Fila "Tarea" de la ficha: la tarea de rutina en curso del peatón. */
+function taskDetail(p: Pedestrian): AgentDetail {
+  const act = p.routine.active;
+  if (!act) return { label: 'Tarea', value: '—' };
+  const def = taskDefs[act.kind];
+  return { label: 'Tarea', value: `${def.icon} ${def.describe(act)}` };
 }
 
 /**

@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
  */
 export class CameraRig {
   readonly controls: OrbitControls;
-  private followTarget: (() => { x: number; z: number }) | null = null;
+  private followTarget: (() => { x: number; z: number; y?: number }) | null = null;
   private readonly smooth = new THREE.Vector3();
   private readonly move = new THREE.Vector3();
   private readonly forward = new THREE.Vector3();
@@ -40,7 +40,7 @@ export class CameraRig {
   }
 
   /** `closeUp` fuerza un primer plano (p. ej. al crear un personaje). */
-  follow(getPos: (() => { x: number; z: number }) | null, closeUp = false): void {
+  follow(getPos: (() => { x: number; z: number; y?: number }) | null, closeUp = false): void {
     this.followTarget = getPos;
     if (getPos) {
       const p = getPos();
@@ -92,7 +92,8 @@ export class CameraRig {
       const dz = this.smooth.z - this.controls.target.z;
       this.controls.target.x += dx;
       this.controls.target.z += dz;
-      this.controls.target.y += (1.2 - this.controls.target.y) * k;
+      // Cota del agente (peatones en plantas altas): el encuadre le acompaña.
+      this.controls.target.y += ((p.y ?? 0) + 1.2 - this.controls.target.y) * k;
       this.camera.position.x += dx;
       this.camera.position.z += dz;
     }

@@ -64,6 +64,11 @@ export class CustomPedestrianMesh {
     this.entries.push({ index, group: g, hands, marker });
   }
 
+  /** Grupo del personaje del peatón `index`, si es un personaje personalizado. */
+  groupOf(index: number): THREE.Group | null {
+    return this.entries.find((e) => e.index === index)?.group ?? null;
+  }
+
   /** `camera` permite agrandar el marcador con la distancia para que el
    *  personaje se localice a cualquier zoom. */
   update(alpha: number, timeMs: number, camera?: THREE.Camera): void {

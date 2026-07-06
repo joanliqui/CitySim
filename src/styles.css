@@ -274,6 +274,85 @@ body,
   display: none;
 }
 
+.routine-toggle {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.routine-toggle.hidden {
+  display: none;
+}
+
+/* ── Panel de rutina del peatón ── */
+.agent-routine {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.agent-routine.hidden {
+  display: none;
+}
+
+.routine-task {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--panel-border);
+}
+
+.routine-task.activa {
+  border-color: rgba(45, 212, 191, 0.45);
+  background: rgba(20, 184, 166, 0.08);
+}
+
+.routine-task.hecha,
+.routine-task.fallida {
+  opacity: 0.55;
+}
+
+.routine-task-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.routine-score {
+  color: #14b8a6;
+  font-variant-numeric: tabular-nums;
+}
+
+.routine-task-sub {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+
+.routine-state.activa {
+  color: var(--accent);
+}
+
+.routine-state.hecha {
+  color: #4ade80;
+}
+
+.routine-state.fallida {
+  color: #f87171;
+}
+
+.routine-task-detail {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
 .agent-stats {
   display: flex;
   flex-direction: column;
@@ -662,7 +741,7 @@ body,
 
 /* ── Pestaña de personalidad ── */
 .personality-sliders {
-  gap: 14px;
+  gap: 8px;
   justify-content: center;
 }
 

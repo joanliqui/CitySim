@@ -14,7 +14,7 @@
  * reparto por estanterías y el render funcionan sin tocar nada más.
  */
 
-/** Secciones de un supermercado. */
+/** Secciones de un supermercado (y de las tiendas de gremio). */
 export type MarketSection =
   /* Frescos con mueble propio (frutería y mostradores del fondo). */
   | 'fruta'
@@ -31,7 +31,13 @@ export type MarketSection =
   | 'congelados'
   | 'higiene'
   | 'limpieza'
-  | 'mascotas';
+  | 'mascotas'
+  /* Secciones EXCLUSIVAS de las tiendas de gremio (no están en `SHELF_SECTIONS`,
+   * así que el súper no las reparte por sus góndolas). */
+  | 'ropa'
+  | 'farmacia'
+  | 'electronica'
+  | 'libros';
 
 /** Propiedades de una sección. */
 export interface MarketSectionDef {
@@ -57,6 +63,10 @@ export const MARKET_SECTION_CATALOG: Record<MarketSection, MarketSectionDef> = {
   higiene: { label: 'Higiene personal', color: 0x5fc9c0 },
   limpieza: { label: 'Limpieza y droguería', color: 0x9a5fd0 },
   mascotas: { label: 'Mascotas', color: 0xd97b2f },
+  ropa: { label: 'Ropa y moda', color: 0xb0507e },
+  farmacia: { label: 'Parafarmacia', color: 0x58c092 },
+  electronica: { label: 'Electrónica', color: 0x46566a },
+  libros: { label: 'Libros y papelería', color: 0xa8703e },
 };
 
 /** Secciones que se reparten entre las estanterías (góndolas y pared). */

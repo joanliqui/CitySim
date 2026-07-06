@@ -17,8 +17,9 @@ import { PersonalityRadar } from './PersonalityRadar';
  * Popup de creación de personaje: organizado en pestañas (Apariencia /
  * Personalidad). La pestaña de apariencia tiene la vista previa 3D (turntable
  * con renderer propio) y la personalización (peinado, colores, altura). La de
- * personalidad tiene sliders de los Cinco Grandes y un radar que se actualiza
- * en vivo. Al confirmar entrega aspecto + personalidad y se cierra.
+ * personalidad tiene sliders de las facetas de los Cinco Grandes (agrupadas por
+ * factor) y un radar que se actualiza en vivo. Al confirmar entrega aspecto +
+ * personalidad y se cierra.
  */
 export class CharacterCreator {
   private readonly overlay: HTMLDivElement;
@@ -92,7 +93,16 @@ export class CharacterCreator {
 
     /* ── Personalidad: sliders + radar ── */
     const sliderBox = this.overlay.querySelector<HTMLDivElement>('.personality-sliders')!;
+    let lastFactor = '';
     for (const trait of BIG_FIVE) {
+      // Cabecera de factor cuando cambia (dos facetas por factor).
+      if (trait.factorLabel !== lastFactor) {
+        lastFactor = trait.factorLabel;
+        const section = document.createElement('div');
+        section.className = 'creator-section';
+        section.textContent = trait.factorLabel;
+        sliderBox.appendChild(section);
+      }
       const row = document.createElement('div');
       row.className = 'personality-row';
       row.innerHTML = `

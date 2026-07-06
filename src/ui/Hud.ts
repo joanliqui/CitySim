@@ -19,6 +19,22 @@ export interface AgentDetail {
   focusHome?: boolean;
 }
 
+/** Una tarea de la rutina del peatón, ya formateada para el panel. */
+export interface RoutineTaskInfo {
+  icon: string;
+  label: string;
+  /** Estado legible ("en curso", "pendiente", "hecha", "fallida"). */
+  state: string;
+  /** Clase CSS del estado (activa | pendiente | hecha | fallida). */
+  stateClass: string;
+  /** Franja horaria ("13:30–16:00") o null si no tiene. */
+  window: string | null;
+  /** Puntuación actual en la subasta, o null si ahora mismo no compite. */
+  score: number | null;
+  /** Desglose de la puntuación u otro detalle ("base 80 + urgencia 12…"). */
+  detail: string;
+}
+
 export interface AgentInfo {
   icon: string;
   title: string;
@@ -28,6 +44,8 @@ export interface AgentInfo {
   details?: AgentDetail[];
   /** Stats opcionales (p. ej. personalidad del peatón); habilitan el botón. */
   stats?: AgentStat[];
+  /** Rutina diaria (tareas ordenadas); habilita el botón Rutina. */
+  routine?: RoutineTaskInfo[];
   /** Acciones contextuales (p. ej. "Ir a casa"); habilitan el botón Actions. */
   actions?: AgentAction[];
 }
@@ -73,6 +91,9 @@ export class Hud {
   private readonly statsToggle: HTMLButtonElement;
   private readonly agentStats: HTMLDivElement;
   private statsVisible = false;
+  private readonly routineToggle: HTMLButtonElement;
+  private readonly agentRoutine: HTMLDivElement;
+  private routineVisible = false;
   private readonly actionsToggle: HTMLButtonElement;
   private readonly agentActionsPanel: HTMLDivElement;
   private readonly agentActions: HTMLDivElement;
@@ -142,6 +163,8 @@ export class Hud {
           <div class="agent-detail"></div>
           <button class="btn stats-toggle hidden">📋 Mostrar información</button>
           <div class="agent-stats hidden"></div>
+          <button class="btn routine-toggle hidden">🗓️ Ver rutina</button>
+          <div class="agent-routine hidden"></div>
           <button class="btn actions-toggle hidden">⚡ Actions</button>
           <button class="btn release">Dejar de seguir</button>
         </div>
@@ -165,6 +188,8 @@ export class Hud {
     this.agentDetail = root.querySelector('.agent-detail')!;
     this.statsToggle = root.querySelector('.stats-toggle')!;
     this.agentStats = root.querySelector('.agent-stats')!;
+    this.routineToggle = root.querySelector('.routine-toggle')!;
+    this.agentRoutine = root.querySelector('.agent-routine')!;
     this.actionsToggle = root.querySelector('.actions-toggle')!;
     this.agentActionsPanel = root.querySelector('.agent-actions-panel')!;
     this.agentActions = root.querySelector('.agent-actions')!;
@@ -181,14 +206,9 @@ export class Hud {
       callbacks.onSpeed(v);
     });
     root.querySelector('.release')!.addEventListener('click', () => callbacks.onRelease());
-    this.statsToggle.addEventListener('click', () => {
-      this.statsVisible = !this.statsVisible;
-      this.applyStatsVisibility();
-    });
-    this.actionsToggle.addEventListener('click', () => {
-      this.actionsVisible = !this.actionsVisible;
-      this.applyActionsVisibility();
-    });
+    this.statsToggle.addEventListener('click', () => this.toggleDropdown('stats'));
+    this.routineToggle.addEventListener('click', () => this.toggleDropdown('routine'));
+    this.actionsToggle.addEventListener('click', () => this.toggleDropdown('actions'));
     // Delegación: cada acción lleva su id en data-action.
     this.agentActions.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.agent-action');
@@ -313,6 +333,32 @@ export class Hud {
     }
     this.applyStatsVisibility();
 
+    if (info.routine && info.routine.length) {
+      this.routineToggle.classList.remove('hidden');
+      // Se re-renderiza en cada refresco: las puntuaciones cambian en vivo.
+      this.agentRoutine.innerHTML = info.routine
+        .map(
+          (t) => `
+            <div class="routine-task ${t.stateClass}">
+              <div class="routine-task-head">
+                <span>${t.icon} ${t.label}</span>
+                <span class="routine-score">${t.score === null ? '—' : Math.round(t.score)}</span>
+              </div>
+              <div class="routine-task-sub">
+                <span class="routine-state ${t.stateClass}">${t.state}</span>
+                <span>${t.window ?? 'sin horario'}</span>
+              </div>
+              ${t.detail ? `<div class="routine-task-detail">${t.detail}</div>` : ''}
+            </div>`,
+        )
+        .join('');
+    } else {
+      this.routineToggle.classList.add('hidden');
+      this.routineVisible = false;
+      this.agentRoutine.innerHTML = '';
+    }
+    this.applyRoutineVisibility();
+
     if (info.actions && info.actions.length) {
       this.actionsToggle.classList.remove('hidden');
       // Reconstruye los botones solo si cambió el conjunto de acciones.
@@ -332,9 +378,26 @@ export class Hud {
     this.applyActionsVisibility();
   }
 
+  /** Acordeón de los desplegables del agente: abrir uno cierra los demás. */
+  private toggleDropdown(which: 'stats' | 'routine' | 'actions'): void {
+    const open =
+      which === 'stats' ? !this.statsVisible : which === 'routine' ? !this.routineVisible : !this.actionsVisible;
+    this.statsVisible = which === 'stats' && open;
+    this.routineVisible = which === 'routine' && open;
+    this.actionsVisible = which === 'actions' && open;
+    this.applyStatsVisibility();
+    this.applyRoutineVisibility();
+    this.applyActionsVisibility();
+  }
+
   private applyStatsVisibility(): void {
     this.agentStats.classList.toggle('hidden', !this.statsVisible);
     this.statsToggle.textContent = this.statsVisible ? '📋 Ocultar información' : '📋 Mostrar información';
+  }
+
+  private applyRoutineVisibility(): void {
+    this.agentRoutine.classList.toggle('hidden', !this.routineVisible);
+    this.routineToggle.textContent = this.routineVisible ? '🗓️ Ocultar rutina' : '🗓️ Ver rutina';
   }
 
   private applyActionsVisibility(): void {

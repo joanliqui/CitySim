@@ -4,6 +4,7 @@ import { SidewalkGraph } from '../city/SidewalkGraph';
 import { PedestrianSystem } from './PedestrianSystem';
 import { TrafficLightSystem } from './TrafficLightSystem';
 import { VehicleSystem } from './VehicleSystem';
+import { Weather } from './weather';
 
 export interface SimStats {
   vehicles: number;
@@ -18,6 +19,7 @@ export class Simulation {
   readonly roads: RoadGraph;
   readonly sidewalks: SidewalkGraph;
   readonly lights: TrafficLightSystem;
+  readonly weather: Weather;
   readonly vehicleSystem: VehicleSystem;
   readonly pedestrianSystem: PedestrianSystem;
 
@@ -28,8 +30,16 @@ export class Simulation {
     this.roads = new RoadGraph(model);
     this.sidewalks = new SidewalkGraph(model);
     this.lights = new TrafficLightSystem(model.intersections.length, model.roundabouts);
+    this.weather = new Weather(options.seed);
     this.vehicleSystem = new VehicleSystem(model, this.roads, this.lights, options.vehicles, options.seed + 1);
-    this.pedestrianSystem = new PedestrianSystem(model, this.sidewalks, this.lights, options.pedestrians, options.seed + 2);
+    this.pedestrianSystem = new PedestrianSystem(
+      model,
+      this.sidewalks,
+      this.lights,
+      this.weather,
+      options.pedestrians,
+      options.seed + 2,
+    );
   }
 
   step(dt: number, time: number, hour: number): void {

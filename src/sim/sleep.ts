@@ -47,17 +47,17 @@ function jitter(seed: number): number {
   return n / 4294967296;
 }
 
-/** Ritmo de gasto: el neuroticismo cansa antes; la responsabilidad lo modera. */
+/** Ritmo de gasto: la ansiedad cansa antes; la disciplina lo modera. */
 export function drainRate(p: Personality): number {
-  return DRAIN_BASE * (1 + ((p.neuroticismo - 50) / 100) * 0.5 - ((p.responsabilidad - 50) / 100) * 0.2);
+  return DRAIN_BASE * (1 + ((p.ansiedad - 50) / 100) * 0.5 - ((p.disciplina - 50) / 100) * 0.2);
 }
 
-/** Ritmo de recuperación: el menos neurótico descansa algo mejor. */
+/** Ritmo de recuperación: el emocionalmente estable descansa algo mejor. */
 export function recoverRate(p: Personality): number {
-  return RECOVER_BASE * (1 + ((50 - p.neuroticismo) / 100) * 0.3);
+  return RECOVER_BASE * (1 + ((p.estabilidad - 50) / 100) * 0.3);
 }
 
-/** Umbral de energía para acostarse (≈11..29): el responsable se acuesta antes. */
+/** Umbral de energía para acostarse (≈11..29): el disciplinado se acuesta antes. */
 export function sleepAt(p: Personality, id: number): number {
-  return 16 + ((p.responsabilidad - 50) / 100) * 10 + jitter(id) * 8;
+  return 16 + ((p.disciplina - 50) / 100) * 10 + jitter(id) * 8;
 }

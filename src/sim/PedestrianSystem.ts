@@ -11,10 +11,16 @@ import { interiorWalkPath } from '../city/buildings/interior/interiorNav';
 import type { PathStep, SidewalkGraph } from '../city/SidewalkGraph';
 import { Rng } from '../core/Rng';
 import type { Leg, Pedestrian } from './agents';
-import { FOOD_CATALOG } from '../city/food/FoodTypes';
-import type { FridgeStore } from '../city/food/Fridge';
-import { drainNeed, FOOD, HYDRATION } from './needs';
+import { FOOD_CATALOG, FOOD_KINDS } from '../city/food/FoodTypes';
+import { addFood, freeSpace, usedSpace, type FridgeStore } from '../city/food/Fridge';
+import { drainNeed, FOOD, HYDRATION, HYGIENE } from './needs';
 import { DEFAULT_PERSONALITY, randomPersonality, type Personality } from './personality';
+import { Routine } from './routine/Routine';
+import { ensureShopping, planDay } from './routine/RoutinePlanner';
+import { taskDefs } from './routine/registry';
+import { INTERRUPT_MARGIN, type FurniturePoint, type RoutineHost, type TaskCtx } from './routine/TaskDef';
+import { hash01, makeTask, type RoutineTask } from './routine/TaskTypes';
+import type { Weather } from './weather';
 import {
   drainRate,
   isNight,
@@ -54,7 +60,16 @@ const CORNER_BLEND = 2.2; // metros suavizados alrededor de cada giro
 const DOOR_LEG_MIN = 0.8; // longitud mínima del tramo puerta→fachada
 const INSIDE_DEPTH = 1.6; // cuánto entra hacia dentro en edificios sin interior (m)
 
-export class PedestrianSystem {
+/** Higiene a la que te deja una lluvia de barro si te pilla en la calle. */
+const MUD_HYGIENE = 8;
+/** Segundos entre re-chequeos de rutina mientras se va por la calle. */
+const STREET_DECIDE_EVERY = 2;
+/** Sin tarea activa por la calle, solo una urgencia de verdad arranca una nueva. */
+const STREET_URGENT_SCORE = 60;
+/** Nivel al que se rellena la nevera al volver de la compra. */
+const RESTOCK_FILL = 0.9;
+
+export class PedestrianSystem implements RoutineHost {
   readonly pedestrians: Pedestrian[] = [];
   private readonly rng: Rng;
   /** Inventario barajado de viviendas: casas (1 por edificio) y apartamentos (1 por planta). */
@@ -62,15 +77,22 @@ export class PedestrianSystem {
   private readonly apts: Dwelling[] = [];
   /** Viviendas ya ocupadas (clave `edificio:planta`): cada una alberga a un solo peatón. */
   private readonly taken = new Set<string>();
+  /** Supermercados de la ciudad (destinos de la tarea "hacer la compra"). */
+  private readonly markets: Building[];
+  /** Día de sim (avanza al detectar el wrap de la hora) y última hora vista. */
+  private day = 0;
+  private lastHour: number | null = null;
 
   constructor(
     private readonly model: CityModel,
     private readonly graph: SidewalkGraph,
     private readonly lights: TrafficLightSystem,
+    private readonly weather: Weather,
     count: number,
     seed: number,
   ) {
     this.rng = new Rng(seed);
+    this.markets = model.buildings.filter((b) => b.shopKind === 'supermarket');
     this.buildInventory();
     // Reparto único de viviendas por clase social (precalculado antes del bucle).
     const plan = this.assignHomes(count);
@@ -98,6 +120,10 @@ export class PedestrianSystem {
         energy: this.rng.range(70, 100),
         food: this.rng.range(60, 100),
         hydration: this.rng.range(60, 100),
+        // Jitter por id (no consume el Rng: preserva el orden existente de consumo).
+        hygiene: 55 + hash01(id ^ 0x8517) * 45,
+        routine: new Routine(),
+        decideT: 0.5 + hash01(id ^ 0x3d1) * STREET_DECIDE_EVERY,
         sleeping: false,
         eating: false,
         wantsToEat: false,
@@ -118,6 +144,7 @@ export class PedestrianSystem {
         prevScale: 1,
       };
       this.pedestrians.push(ped);
+      planDay(ped.routine, ped, this.day, this);
     }
   }
 
@@ -150,6 +177,9 @@ export class PedestrianSystem {
       energy: this.rng.range(70, 100),
       food: this.rng.range(60, 100),
       hydration: this.rng.range(60, 100),
+      hygiene: 55 + hash01(this.pedestrians.length ^ 0x8517) * 45,
+      routine: new Routine(),
+      decideT: 1,
       sleeping: false,
       eating: false,
       wantsToEat: false,
@@ -170,6 +200,7 @@ export class PedestrianSystem {
       prevScale: 1,
     };
     this.pedestrians.push(ped);
+    planDay(ped.routine, ped, this.day, this);
     if (this.plan(ped)) {
       ped.state = 'exiting';
     }
@@ -184,6 +215,8 @@ export class PedestrianSystem {
   goHome(index: number): boolean {
     const ped = this.pedestrians[index];
     if (!ped) return false;
+    // La orden del usuario prevalece: la tarea en curso vuelve a pendiente.
+    if (ped.routine.active) ped.routine.release(ped.routine.active);
     if (ped.state === 'inside' && ped.building === ped.home) return false; // ya está en casa
 
     if (ped.state === 'inside') {
@@ -205,6 +238,8 @@ export class PedestrianSystem {
     const ped = this.pedestrians[index];
     if (!ped || ped.sleeping) return false;
     if (ped.eating) return true; // ya está comiendo
+    // La orden del usuario prevalece sobre la tarea en curso (salvo si ya es comer).
+    if (ped.routine.active && ped.routine.active.kind !== 'comer') ped.routine.release(ped.routine.active);
     ped.wantsToEat = true;
     // Si no está dentro de su casa, encamínalo; `stepInside` lo hará comer al llegar.
     if (!(ped.state === 'inside' && ped.building === ped.home)) return this.goHome(index);
@@ -213,20 +248,131 @@ export class PedestrianSystem {
 
   /** Reencamina a un peatón que va por la calle hacia su hogar desde su posición. */
   private walkHome(ped: Pedestrian): boolean {
+    return this.walkTo(ped, ped.home);
+  }
+
+  /** Reencamina a un peatón que va por la calle hacia `to` desde su posición. */
+  private walkTo(ped: Pedestrian, to: Building): boolean {
     const startNode = this.graph.nearestNode(ped.x, ped.z);
-    const steps = this.graph.findPath(startNode, ped.home.doorNode);
+    const steps = this.graph.findPath(startNode, to.doorNode);
     if (!steps) return false;
     const start = this.graph.nodes[startNode];
     const legs: Leg[] = [makeLeg(ped.x, ped.z, start.x, start.z, 'walk')];
     this.appendWalkLegs(legs, startNode, steps);
-    this.appendEntryLegs(legs, ped, ped.home);
+    this.appendEntryLegs(legs, ped, to);
     ped.legs = legs;
     ped.legIdx = 0;
     ped.s = 0;
     ped.y = 0;
-    ped.building = ped.home;
+    ped.building = to;
     ped.state = 'walking';
     return true;
+  }
+
+  /**
+   * Contexto de rutina para consultas externas (HUD): puntuar tareas requiere
+   * la hora, el día y el host — el día es interno de este sistema.
+   */
+  routineCtx(hour: number): TaskCtx {
+    return { hour, day: this.day, host: this };
+  }
+
+  /* ── RoutineHost: lo que las tareas de rutina pueden pedirle al sistema ─── */
+
+  atHome(ped: Pedestrian): boolean {
+    return ped.state === 'inside' && ped.building === ped.home;
+  }
+
+  isInside(ped: Pedestrian, b: Building): boolean {
+    return ped.state === 'inside' && ped.building === b;
+  }
+
+  /** Encamina hacia `b` desde donde esté (dentro o por la calle). */
+  routeTo(ped: Pedestrian, b: Building): boolean {
+    if (ped.state === 'inside') {
+      if (ped.building === b) return true;
+      if (!this.planTo(ped, ped.building, b)) return false;
+      ped.state = 'exiting';
+      return true;
+    }
+    // Por la calle (andando, esperando o cruzando) se puede reencaminar; en
+    // tramos interiores (exiting/entering) no: se espera a que salga.
+    if (ped.state === 'walking' || ped.state === 'waiting' || ped.state === 'crossing') {
+      return this.walkTo(ped, b);
+    }
+    return false;
+  }
+
+  /** El "pasear" clásico: salir a un edificio aleatorio (pesos por tipo y cercanía). */
+  wander(ped: Pedestrian): boolean {
+    if (ped.state !== 'inside') return false;
+    if (!this.plan(ped)) return false;
+    ped.state = 'exiting';
+    return true;
+  }
+
+  requestEat(ped: Pedestrian): void {
+    ped.wantsToEat = true;
+  }
+
+  /** Supermercado más cercano al hogar del peatón. */
+  market(ped: Pedestrian): Building | null {
+    let best: Building | null = null;
+    let bestD = Infinity;
+    for (const m of this.markets) {
+      const d = Math.hypot(m.door.x - ped.home.door.x, m.door.z - ped.home.door.z);
+      if (d < bestD) {
+        bestD = d;
+        best = m;
+      }
+    }
+    return best;
+  }
+
+  /** Fracción de llenado de la nevera de casa [0..1]; null si no hay nevera. */
+  fridgeFill(ped: Pedestrian): number | null {
+    const target = this.fridgeTarget(ped.home, ped.homeUnit);
+    if (!target) return null;
+    return target.store.capacity > 0 ? usedSpace(target.store) / target.store.capacity : 0;
+  }
+
+  /** Guarda la compra: rellena la nevera hasta ~RESTOCK_FILL de su capacidad. */
+  restockFridge(ped: Pedestrian): void {
+    const target = this.fridgeTarget(ped.home, ped.homeUnit);
+    if (!target) return;
+    const store = target.store;
+    while (usedSpace(store) < store.capacity * RESTOCK_FILL) {
+      const space = freeSpace(store);
+      const fit = FOOD_KINDS.filter((k) => FOOD_CATALOG[k].size <= space);
+      if (fit.length === 0) break;
+      addFood(store, this.rng.pick(fit));
+    }
+  }
+
+  /** Punto frente a (o dentro de) el primer mueble del hogar de los tipos dados. */
+  homeFurniture(ped: Pedestrian, kinds: readonly string[], standOff: number): FurniturePoint | null {
+    const { furniture, yBase } = this.homeFurnishings(ped.home, ped.homeUnit);
+    if (!furniture) return null;
+    for (const kind of kinds) {
+      const f = furniture.find((it) => it.kind === kind);
+      if (!f) continue;
+      if (standOff > 0) {
+        // Plantado frente al mueble, mirándolo.
+        return {
+          x: f.x + f.faceX * standOff,
+          z: f.z + f.faceZ * standOff,
+          y: yBase,
+          heading: Math.atan2(-f.faceX, -f.faceZ),
+        };
+      }
+      // Dentro del mueble (p. ej. el plato de la ducha), mirando hacia fuera.
+      return { x: f.x, z: f.z, y: yBase, heading: Math.atan2(f.faceX, f.faceZ) };
+    }
+    return null;
+  }
+
+  homeStand(ped: Pedestrian): { x: number; z: number; y: number } {
+    return this.standTarget(ped.home, ped.homeUnit, true);
   }
 
   /**
@@ -498,6 +644,20 @@ export class PedestrianSystem {
   }
 
   step(dt: number, time: number, hour: number): void {
+    // Cambio de día: al detectar el wrap de la hora (medianoche) se aplica el
+    // rollover de agendas (posponer/descartar) y se planifica el nuevo día.
+    if (this.lastHour !== null && hour < this.lastHour - 12) {
+      this.day++;
+      for (const ped of this.pedestrians) {
+        ped.routine.rollover(ped.id, this.day);
+        planDay(ped.routine, ped, this.day, this);
+      }
+    }
+    this.lastHour = hour;
+
+    const mudRain = this.weather.isMudRain(this.day, hour, time);
+    const ctx: TaskCtx = { hour, day: this.day, host: this };
+
     for (const ped of this.pedestrians) {
       ped.prevX = ped.x;
       ped.prevZ = ped.z;
@@ -512,17 +672,45 @@ export class PedestrianSystem {
       // día y por la noche se va a dormir.
       if (!ped.sleeping) ped.energy = Math.max(0, ped.energy - dt * drainRate(ped.personality));
 
-      // Alimentación e hidratación bajan de forma continua (también durmiendo),
-      // por tramos de velocidad (ver `needs.ts`). Hoy ambos son lineales.
+      // Alimentación, hidratación e higiene bajan de forma continua (también
+      // durmiendo), por tramos de velocidad (ver `needs.ts`). Hoy son lineales.
       ped.food = drainNeed(ped.food, FOOD, dt);
       ped.hydration = drainNeed(ped.hydration, HYDRATION, dt);
+      ped.hygiene = drainNeed(ped.hygiene, HYGIENE, dt);
+
+      // Lluvia de barro: ensucia de golpe a quien pilla por la calle. La señal
+      // (higiene) dispara la urgencia de la ducha; el evento añade el estímulo.
+      if (mudRain && isOutside(ped) && ped.hygiene > MUD_HYGIENE) {
+        ped.hygiene = MUD_HYGIENE;
+        if (!ped.routine.has('ducharse')) {
+          ped.routine.add(makeTask('ducharse', this.day, null)); // sin ventana: urge ya
+        }
+        ped.routine.notify({ kind: 'lluvia-barro', intensity: 1 }, ped);
+      }
+
+      // Rutina: decae el estímulo y avanza la tarea activa (si la hay).
+      ped.routine.tick(dt);
+      this.stepActiveTask(ped, ctx, dt);
 
       // Quien va por la calle hacia un destino que no es su casa se redirige a
       // casa si es de noche (a dormir) o si tiene hambre estando despierto (a
-      // comer). Los que ya están dentro lo deciden en stepInside.
-      const wantsHome = isNight(hour) || (!ped.sleeping && (ped.food < EAT_THRESHOLD || ped.wantsToEat));
+      // comer) — salvo que esté haciendo la compra: esa tarea YA arregla el
+      // hambre. Los que ya están dentro lo deciden en stepInside.
+      const comprando = ped.routine.active?.kind === 'comprar';
+      const wantsHome =
+        isNight(hour) || (!ped.sleeping && ((ped.food < EAT_THRESHOLD && !comprando) || ped.wantsToEat));
       if (wantsHome && ped.state === 'walking' && ped.building !== ped.home) {
         this.walkHome(ped);
+      }
+
+      // Re-chequeo de rutina por la calle: permite que un suceso urgente
+      // (lluvia de barro, hambre creciente) interrumpa la tarea en curso.
+      if (isOutside(ped)) {
+        ped.decideT -= dt;
+        if (ped.decideT <= 0) {
+          ped.decideT = STREET_DECIDE_EVERY;
+          this.streetDecide(ped, ctx);
+        }
       }
 
       switch (ped.state) {
@@ -541,6 +729,54 @@ export class PedestrianSystem {
       }
       this.computePose(ped);
     }
+  }
+
+  /** Avanza un paso la tarea activa y procesa su resultado. */
+  private stepActiveTask(ped: Pedestrian, ctx: TaskCtx, dt: number): void {
+    const act = ped.routine.active;
+    if (!act) return;
+    const res = taskDefs[act.kind].update(act, ped, ctx, dt);
+    if (res === 'hecha') {
+      ped.routine.complete(act);
+    } else if (res === 'abandonada') {
+      ped.routine.release(act);
+    } else if (res === 'fallida') {
+      ped.routine.fail(act);
+      if (act.kind === 'comer') {
+        // Comida frustrada por nevera vacía: agenda la compra y empújala.
+        ensureShopping(ped.routine, ped, ctx.day, this);
+        ped.routine.notify({ kind: 'nevera-vacia', intensity: 1 }, ped);
+      }
+    }
+  }
+
+  /**
+   * Subasta de rutina en plena calle. Con tarea activa, solo cambia si otra la
+   * supera con margen (histéresis) y la activa es interrumpible; sin tarea
+   * activa (paseo dirigido por el usuario, vuelta nocturna), solo arranca algo
+   * si es una urgencia de verdad.
+   */
+  private streetDecide(ped: Pedestrian, ctx: TaskCtx): void {
+    if (ped.sleeping) return;
+    const act = ped.routine.active;
+    const cand = ped.routine.best(ped, ctx);
+    if (!cand || cand.task === act) return;
+    if (act) {
+      if (!taskDefs[act.kind].interruptible) return;
+      const actScore = ped.routine.score(act, ped, ctx, true) ?? 0;
+      if (cand.score <= actScore + INTERRUPT_MARGIN) return;
+      ped.routine.release(act);
+    } else if (cand.score < STREET_URGENT_SCORE) {
+      return;
+    }
+    this.startTask(ped, cand.task, ctx);
+  }
+
+  /** Arranca una tarea: si su `start` encamina/prepara, pasa a activa. */
+  private startTask(ped: Pedestrian, task: RoutineTask, ctx: TaskCtx): boolean {
+    if (!taskDefs[task.kind].start(task, ped, ctx)) return false;
+    ped.routine.activate(task);
+    return true;
   }
 
   /**
@@ -581,8 +817,10 @@ export class PedestrianSystem {
 
     // Hambre (estando despierto) o comer ordenado por el usuario (`wantsToEat`):
     // va a su nevera a comer. Si está en casa y hay comida, empieza a comer; si
-    // está fuera, vuelve a casa primero.
-    if (ped.food < EAT_THRESHOLD || ped.wantsToEat) {
+    // está fuera, vuelve a casa primero. Excepción: si está haciendo la compra,
+    // el hambre no lo desvía (la compra es justo lo que arregla el problema).
+    const comprando = ped.routine.active?.kind === 'comprar';
+    if ((ped.food < EAT_THRESHOLD && !comprando) || ped.wantsToEat) {
       if (ped.building === ped.home) {
         if (this.startEating(ped)) {
           ped.wantsToEat = false;
@@ -593,6 +831,19 @@ export class PedestrianSystem {
         ped.state = 'exiting';
         return;
       }
+    }
+
+    // Con tarea activa, su `update` (en step) lleva el control: aquí no se decide.
+    if (ped.routine.active) return;
+
+    // Subasta de rutina: al expirar el temporizador de estancia, la tarea con
+    // mayor puntuación gana (de noche solo compiten las tareas `nightOk`).
+    ped.timer -= dt;
+    const puedeDecidir = ped.timer <= 0;
+    if (puedeDecidir) {
+      const ctx: TaskCtx = { hour, day: this.day, host: this };
+      const cand = ped.routine.best(ped, ctx);
+      if (cand && this.startTask(ped, cand.task, ctx)) return;
     }
 
     // De noche nadie sale de paseo: o está en casa (y se acuesta al cansarse) o
@@ -608,12 +859,9 @@ export class PedestrianSystem {
       return;
     }
 
-    // De día: ciclo normal: sale a un destino al expirar el temporizador.
-    ped.timer -= dt;
-    if (ped.timer <= 0) {
-      if (this.plan(ped)) ped.state = 'exiting';
-      else ped.timer = 5;
-    }
+    // De día sin tarea que arrancar (raro: "pasear" casi siempre aplica):
+    // reintenta en unos segundos.
+    if (puedeDecidir) ped.timer = 5;
   }
 
   /** Desliza al peatón hacia su cama y lo va tumbando (`recline` → 1). */
@@ -709,18 +957,23 @@ export class PedestrianSystem {
    * Punto frente a la nevera del hogar (medio metro por delante, mirándola) más
    * su almacén. `null` si el hogar no tiene nevera con almacén.
    */
+  /** Mobiliario (y cota de planta) de una vivienda: su apartamento o su casa. */
+  private homeFurnishings(b: Building, homeUnit: number): { furniture?: readonly Furniture[]; yBase: number } {
+    if (b.officeInterior && homeUnit > 0) {
+      return {
+        furniture: b.officeInterior.dwellings[homeUnit - 1]?.furniture,
+        yBase: floorSurfaceY(homeUnit, b.officeInterior.floorH),
+      };
+    }
+    if (b.interior) return { furniture: b.interior.furniture, yBase: 0 };
+    return { yBase: 0 };
+  }
+
   private fridgeTarget(
     b: Building,
     homeUnit: number,
   ): { x: number; z: number; y: number; heading: number; store: FridgeStore } | null {
-    let furniture: readonly Furniture[] | undefined;
-    let yBase = 0;
-    if (b.officeInterior && homeUnit > 0) {
-      furniture = b.officeInterior.dwellings[homeUnit - 1]?.furniture;
-      yBase = floorSurfaceY(homeUnit, b.officeInterior.floorH);
-    } else if (b.interior) {
-      furniture = b.interior.furniture;
-    }
+    const { furniture, yBase } = this.homeFurnishings(b, homeUnit);
     const fridge = furniture?.find((f) => f.kind === 'fridge');
     if (!fridge?.food) return null;
     const STAND = 0.5; // se planta medio metro por delante de la nevera
@@ -739,14 +992,7 @@ export class PedestrianSystem {
    * cama (entonces se duerme en el punto de estar de pie).
    */
   private bedTarget(b: Building, homeUnit: number): { x: number; z: number; y: number; heading: number } | null {
-    let furniture: readonly Furniture[] | undefined;
-    let yBase = 0;
-    if (b.officeInterior && homeUnit > 0) {
-      furniture = b.officeInterior.dwellings[homeUnit - 1]?.furniture;
-      yBase = floorSurfaceY(homeUnit, b.officeInterior.floorH);
-    } else if (b.interior) {
-      furniture = b.interior.furniture;
-    }
+    const { furniture, yBase } = this.homeFurnishings(b, homeUnit);
     const bed = furniture?.find((f) => f.kind === 'bed');
     if (!bed) return null;
     // `faceX/faceZ` apunta a los pies; heading hacia los pies deja la cabeza del
@@ -826,6 +1072,11 @@ export class PedestrianSystem {
     // La puerta de calle se abre solo mientras cruza el umbral (no toda la subida).
     ped.facadeDoorOpen = isThresholdLeg(leg);
   }
+}
+
+/** ¿Está en la calle? (le afecta el clima y los re-chequeos de rutina). */
+function isOutside(ped: Pedestrian): boolean {
+  return ped.state === 'walking' || ped.state === 'waiting' || ped.state === 'crossing';
 }
 
 /** ¿La pierna cruza la puerta de calle (en planta baja)? El render abre la puerta. */

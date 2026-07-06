@@ -1,9 +1,10 @@
 import { BIG_FIVE, type Personality } from '../sim/personality';
 
 /**
- * Radar (web chart) de los Cinco Grandes. Dibuja un pentágono de rejilla con
- * anillos discontinuos y un polígono de datos relleno que se actualiza en vivo
- * con update(). SVG puro; el estilo (color teal) vive en styles.css.
+ * Radar (web chart) de las facetas de los Cinco Grandes. Dibuja un polígono de
+ * rejilla con anillos discontinuos y un polígono de datos relleno que se
+ * actualiza en vivo con update(). SVG puro; el estilo (color teal) vive en
+ * styles.css.
  */
 const SVG = 'http://www.w3.org/2000/svg';
 const SIZE = 300;
@@ -11,7 +12,7 @@ const CX = SIZE / 2;
 const CY = SIZE / 2;
 const R = 110; // radio del eje (valor 100)
 const RINGS = 4; // anillos de la rejilla
-const N = 5; // número de ejes (Big Five)
+const N = BIG_FIVE.length; // número de ejes (facetas)
 
 /** Vértice del eje i (0 = arriba) a un radio dado (0–R). */
 function vertex(i: number, radius: number): [number, number] {

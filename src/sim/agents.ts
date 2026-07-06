@@ -1,5 +1,6 @@
 import type { Building, RoadAxis } from '../city/CityModel';
 import type { Personality } from './personality';
+import type { Routine } from './routine/Routine';
 import type { SocialClass } from './socialClass';
 
 /* ── Vehículos ───────────────────────────────────────────────────────────── */
@@ -90,6 +91,12 @@ export interface Pedestrian {
   food: number;
   /** Hidratación (0–100): 100 = hidratado, 0 = deshidratado. Baja con el tiempo. */
   hydration: number;
+  /** Higiene (0–100): 100 = limpio, 0 = mugriento. Baja con el tiempo; la ducha la restaura. */
+  hygiene: number;
+  /** Agenda de rutina diaria (tareas que compiten por puntuación). */
+  routine: Routine;
+  /** Cuenta atrás del re-chequeo de rutina mientras va por la calle (interrupciones). */
+  decideT: number;
   /** Está tumbado en su cama durmiendo (recupera energía). */
   sleeping: boolean;
   /** Está comiendo en la nevera de su casa (consume comida, recupera alimentación). */

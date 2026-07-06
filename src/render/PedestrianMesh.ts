@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { lerpAngle } from '../city/CityModel';
 import type { Pedestrian } from '../sim/agents';
 
-const SHIRT_COLORS = [0xd6584f, 0x4f7fd6, 0x57b06a, 0xe0b73d, 0x9a5fc2, 0xd87fa8, 0x5fc2b8, 0x8a8f99];
+export const SHIRT_COLORS = [0xd6584f, 0x4f7fd6, 0x57b06a, 0xe0b73d, 0x9a5fc2, 0xd87fa8, 0x5fc2b8, 0x8a8f99];
 const PICK_BOUNDS_RADIUS = 10000;
 /**
  * Factor de altura del peatón: un poco más bajitos para que quepan holgadamente
@@ -83,6 +83,25 @@ export class PedestrianMesh {
 
     this.group.add(this.body, this.head, this.hands);
     this.pickMesh = this.body;
+  }
+
+  /** Geometrías compartidas con el fantasma "rayos X" (misma silueta que las instancias). */
+  partGeometries(): { body: THREE.BufferGeometry; head: THREE.BufferGeometry; hand: THREE.BufferGeometry } {
+    return { body: this.body.geometry, head: this.head.geometry, hand: this.hands.geometry };
+  }
+
+  /**
+   * Copia la pose ya interpolada (tras update) del peatón `i` a los meshes del
+   * fantasma. Devuelve false si `i` no es una instancia de este render (peatón
+   * personalizado, que vive en CustomPedestrianMesh).
+   */
+  copyPoseTo(i: number, body: THREE.Object3D, head: THREE.Object3D, handL: THREE.Object3D, handR: THREE.Object3D): boolean {
+    if (i < 0 || i >= this.count) return false;
+    this.body.getMatrixAt(i, body.matrix);
+    this.head.getMatrixAt(i, head.matrix);
+    this.hands.getMatrixAt(i * 2, handL.matrix);
+    this.hands.getMatrixAt(i * 2 + 1, handR.matrix);
+    return true;
   }
 
   update(alpha: number, timeMs: number): void {

@@ -62,3 +62,6 @@ export const HYDRATION: NeedConfig = linearNeed(2);
 
 /** Alimentación: se vacía de 100 a 0 en 5 días. */
 export const FOOD: NeedConfig = linearNeed(5);
+
+/** Higiene: se vacía de 100 a 0 en 3 días (la ducha la restaura; ver rutinas). */
+export const HYGIENE: NeedConfig = linearNeed(3);

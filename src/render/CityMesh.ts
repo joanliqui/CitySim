@@ -1542,7 +1542,7 @@ function addBuildings(
   // Helpers de geometría inyectados (definidos en este módulo) + paletas.
   const helpers: BuildingRenderHelpers = {
     compose, composeYaw,
-    addFlatRoof, addRoofFixture, addFrontBalconies, addFacadeBands, addWindowRow, addHouseShell, addMarketShell, addBed,
+    addFlatRoof, addRoofFixture, addFrontBalconies, addFacadeBands, addWindowRow, addHouseShell, addMarketShell, addShopShell, addBed,
     addNightstand, addWardrobe, addDresser, addRug, addShower, addBathtub, addSink, addToilet, addBathVanity, addBathShelf, addTowelStack,
     addDiningTable, addDiningChair, addSideboard, addPottedPlant,
     addUpholstered, addTv, addCoffeeTable, addBookshelf, addFloorLamp,
@@ -1926,6 +1926,63 @@ function addMarketShell(
     for (const sgn of [-1, 1]) {
       const zs = b.z + sgn * (b.d / 2 - t / 2);
       addWallWithHoles(pushBody, b.x - b.w / 2 + t, zs, b.x + b.w / 2 - t, zs, b.h, t, sideOpenings);
+    }
+  }
+}
+
+/**
+ * Casco hueco de una tienda de gremio (local bajo de una planta): suelo + cuatro
+ * muros, con huecos REALES solo en la fachada (puerta batiente + escaparates),
+ * pasados en la coordenada `along` de la fachada (0 = centro, crece hacia la
+ * tangente tx=faceZ, tz=−faceX — la misma convención que el interior/render).
+ * Los otros tres muros son macizos. Paleta de tienda (no la de nave de súper).
+ */
+function addShopShell(
+  b: RenderBuilding,
+  wallT: number,
+  openings: { along0: number; along1: number; y0: number; y1: number }[],
+  bodyMats: THREE.Matrix4[],
+  bodyColors: THREE.Color[],
+  floorMats: THREE.Matrix4[],
+): void {
+  const color = new THREE.Color(BUILDING_PALETTES[b.type][b.colorIdx % 6]);
+  const pushBody = (m: THREE.Matrix4) => {
+    bodyMats.push(m);
+    bodyColors.push(color);
+  };
+  const t = wallT;
+
+  floorMats.push(compose(b.x, b.z, 0.06, b.w - 0.02, 0.12, b.d - 0.02));
+
+  if (b.faceZ !== 0) {
+    const zFront = b.z + b.faceZ * (b.d / 2 - t / 2);
+    const zBack = b.z - b.faceZ * (b.d / 2 - t / 2);
+    // `s` del muro frontal crece hacia +X; la tangente de fachada es tx=faceZ.
+    const front: WallOpening[] = openings.map((o) => {
+      const sA = b.w / 2 + b.faceZ * o.along0;
+      const sB = b.w / 2 + b.faceZ * o.along1;
+      return { s0: Math.min(sA, sB), s1: Math.max(sA, sB), y0: o.y0, y1: o.y1 };
+    });
+    addWallWithHoles(pushBody, b.x - b.w / 2, zFront, b.x + b.w / 2, zFront, b.h, t, front);
+    addWallWithHoles(pushBody, b.x - b.w / 2, zBack, b.x + b.w / 2, zBack, b.h, t, []);
+    for (const sgn of [-1, 1]) {
+      const xs = b.x + sgn * (b.w / 2 - t / 2);
+      addWallWithHoles(pushBody, xs, b.z - b.d / 2 + t, xs, b.z + b.d / 2 - t, b.h, t, []);
+    }
+  } else {
+    const xFront = b.x + b.faceX * (b.w / 2 - t / 2);
+    const xBack = b.x - b.faceX * (b.w / 2 - t / 2);
+    // `s` del muro frontal crece hacia +Z; la tangente de fachada es tz=−faceX.
+    const front: WallOpening[] = openings.map((o) => {
+      const sA = b.d / 2 - b.faceX * o.along0;
+      const sB = b.d / 2 - b.faceX * o.along1;
+      return { s0: Math.min(sA, sB), s1: Math.max(sA, sB), y0: o.y0, y1: o.y1 };
+    });
+    addWallWithHoles(pushBody, xFront, b.z - b.d / 2, xFront, b.z + b.d / 2, b.h, t, front);
+    addWallWithHoles(pushBody, xBack, b.z - b.d / 2, xBack, b.z + b.d / 2, b.h, t, []);
+    for (const sgn of [-1, 1]) {
+      const zs = b.z + sgn * (b.d / 2 - t / 2);
+      addWallWithHoles(pushBody, b.x - b.w / 2 + t, zs, b.x + b.w / 2 - t, zs, b.h, t, []);
     }
   }
 }

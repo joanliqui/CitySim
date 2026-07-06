@@ -226,6 +226,20 @@ export interface BuildingRenderHelpers {
     bodyColors: THREE.Color[],
     floorMats: THREE.Matrix4[],
   ): void;
+  /**
+   * Casco hueco de una tienda de gremio (local bajo de una planta): suelo +
+   * cuatro muros macizos salvo la fachada, que lleva los huecos REALES pasados
+   * en la coordenada `along` (0 = centro de fachada, crece hacia la tangente
+   * tx=faceZ, tz=−faceX): puerta batiente y escaparates.
+   */
+  addShopShell(
+    b: RenderBuilding,
+    wallT: number,
+    openings: { along0: number; along1: number; y0: number; y1: number }[],
+    bodyMats: THREE.Matrix4[],
+    bodyColors: THREE.Color[],
+    floorMats: THREE.Matrix4[],
+  ): void;
   addBed(
     f: { x: number; z: number; w: number; d: number; headX: number; headZ: number; double: boolean },
     frame: THREE.Matrix4[],
