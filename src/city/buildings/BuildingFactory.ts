@@ -1,6 +1,7 @@
 import { Rng } from '../../core/Rng';
 import {
   CORRIDOR_HALF,
+  DEFAULT_SHOP_HOURS,
   SIDEWALK_CENTER,
   type Building,
   type District,
@@ -211,6 +212,8 @@ export abstract class BuildingFactory {
       id: 0,
       type: this.type,
       shopKind: variant?.shopKind,
+      // Toda tienda abre con el horario por defecto (por ahora único para todas).
+      hours: variant ? { ...DEFAULT_SHOP_HOURS } : undefined,
       name: `${variant?.label ?? this.label} ${typeCount[this.type]}`,
       x,
       z,

@@ -45,8 +45,13 @@ export function planDay(routine: Routine, ped: Pedestrian, day: number, host: Ro
     routine.add(task);
   }
 
-  // Jornada laboral (stub hasta que existan los trabajos: nunca gana la subasta).
-  routine.add(makeTask('trabajar', day, taskDefs.trabajar.window!(id, day)));
+  // Jornada laboral: solo quien tiene puesto asignado. La ventana empieza UNA
+  // HORA antes de abrir (el trayecto se hace antes de la apertura, así está en
+  // su puesto cuando la tienda abre) y termina al cierre.
+  if (ped.workplace?.hours) {
+    const h = ped.workplace.hours;
+    routine.add(makeTask('trabajar', day, { start: h.open - 1, end: h.close }));
+  }
 
   // Ducha diaria: si quedó una pospuesta de ayer, no se duplica.
   if (!routine.has('ducharse')) {

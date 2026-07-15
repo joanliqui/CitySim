@@ -9,6 +9,7 @@
  * suciedad…) y `estímulo` lo inyectan sucesos puntuales (decae con el tiempo).
  */
 import type { Building } from '../../city/CityModel';
+import { simHours } from '../../core/time';
 import type { Pedestrian } from '../agents';
 import type { Personality } from '../personality';
 import type { ExpirePolicy, RoutineEvent, RoutineTask, TaskKind, TaskWindow } from './TaskTypes';
@@ -25,8 +26,8 @@ export const BOOST_PER_MISS = 10;
  * hace algo si hay una razón de verdad (p. ej. lluvia de barro → ducha ya).
  */
 export const FLEX_WINDOW_THRESHOLD = 30;
-/** Vida media del estímulo (segundos de sim ≈ 1 h con DAY_LENGTH = 300 s). */
-export const STIMULUS_HALF_LIFE = 12.5;
+/** Vida media del estímulo (≈ 1 h de sim). */
+export const STIMULUS_HALF_LIFE = simHours(1);
 
 /** Punto interior con orientación (para acercarse a un mueble). */
 export interface FurniturePoint {
@@ -65,6 +66,8 @@ export interface RoutineHost {
   homeFurniture(ped: Pedestrian, kinds: readonly string[], standOff: number): FurniturePoint | null;
   /** Punto interior "de pie" del hogar (a donde volver tras una acción). */
   homeStand(ped: Pedestrian): { x: number; z: number; y: number };
+  /** Puesto de trabajo: de pie tras el mostrador de su tienda (null si no hay). */
+  workSpot(ped: Pedestrian): FurniturePoint | null;
 }
 
 /** Contexto de una decisión/paso de tarea. */

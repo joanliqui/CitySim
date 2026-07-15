@@ -31,6 +31,7 @@ export function shopDoorGeometry(h: number): { doorHalf: number; doorTop: number
 const ENTRY_CLEAR = 2.6; // fondo libre delante de la puerta (centrada)
 const COUNTER_DEP = 2.2; // mostrador de caja, cerca de la fachada
 const COUNTER_D = 0.7;
+const ROTATED_COUNTER_DEP = 1.3; // arranque (dep) del mostrador rotado de local estrecho
 
 /* ── Estanterías de pared ── */
 const SIDE_SHELF_T = 0.55; // fondo de las estanterías laterales
@@ -84,15 +85,32 @@ export function makeShopInterior(
   const backWallDep = depthLen - t; // cara interior del muro del fondo
   const doorHalf = shopDoorGeometry(3).doorHalf; // solo el semiancho (no depende de h)
 
-  // Mostrador de caja a un lado de la puerta (centrada), mirando a la fachada,
-  // como las cajas del súper: detrás de él (hacia la fachada) queda el paso de salida.
+  // Mostrador de caja a un lado de la puerta (centrada). La CARA del mostrador
+  // marca dónde se pone la trabajadora (`workSpot`: lado de la cara); el
+  // cliente queda en el lado opuesto.
+  //  - Local ANCHO: paralelo a la fachada, cara hacia el INTERIOR — la
+  //    trabajadora queda detrás (lado interior), mirando a la puerta.
+  //  - Local ESTRECHO (banda puerta–pared corta): ROTADO 90° y arrimado a la
+  //    pared izquierda, con la cara hacia la pared — la trabajadora queda en el
+  //    hueco entre mostrador y pared, mirando al pasillo de entrada. Esa pared
+  //    se reserva para el puesto (sin estantería izquierda).
   const cMin = -innerHalf + 0.4;
   const cMax = -doorHalf - 0.7;
-  const counterW = Math.min(2.4, cMax - cMin - 0.2);
-  if (counterW >= 1.1) {
+  const band = cMax - cMin;
+  let leftShelf = true;
+  if (band >= 2.2) {
+    const counterW = Math.min(2.4, band - 0.2);
     const p = toWorld((cMin + cMax) / 2, COUNTER_DEP);
     const sz = sizeOf(counterW, COUNTER_D);
-    furniture.push({ kind: 'checkout', x: p.x, z: p.z, w: sz.w, d: sz.d, faceX, faceZ });
+    furniture.push({ kind: 'checkout', x: p.x, z: p.z, w: sz.w, d: sz.d, faceX: -faceX, faceZ: -faceZ });
+  } else if (innerHalf >= 2.7) {
+    const len = 2.2;
+    // Pared + hueco de la trabajadora (0.55 + 0.45 de holgura) + semifondo.
+    const alongC = -innerHalf + 1.35;
+    const p = toWorld(alongC, ROTATED_COUNTER_DEP + len / 2);
+    const sz = sizeOf(COUNTER_D, len);
+    furniture.push({ kind: 'checkout', x: p.x, z: p.z, w: sz.w, d: sz.d, faceX: -tx, faceZ: -tz });
+    leftShelf = false;
   }
 
   // Fondo según el gremio; devuelve hasta qué `dep` pueden llegar las estanterías laterales.
@@ -110,7 +128,8 @@ export function makeShopInterior(
   }
 
   // Muebles contra las paredes laterales: expositores de fruta en la frutería,
-  // estanterías de pared en el resto. Empiezan pasado el escaparate.
+  // estanterías de pared en el resto. Empiezan pasado el escaparate. En locales
+  // estrechos la pared izquierda es del puesto (mostrador rotado): sin mueble.
   const sideKind = spec.layout === 'produce' ? ('produceRack' as const) : ('wallShelf' as const);
   const sideT = spec.layout === 'produce' ? RACK_T : SIDE_SHELF_T;
   const sideLen = sideDepTo - SHELF_FRONT_MARGIN;
@@ -118,6 +137,7 @@ export function makeShopInterior(
     const depCenter = (SHELF_FRONT_MARGIN + sideDepTo) / 2;
     const sz = sizeOf(sideT, sideLen);
     for (const sgn of [-1, 1] as const) {
+      if (sgn === -1 && !leftShelf) continue;
       const p = toWorld(sgn * (innerHalf - sideT / 2), depCenter);
       // Normal hacia el interior: −sgn·tangente.
       furniture.push({ kind: sideKind, x: p.x, z: p.z, w: sz.w, d: sz.d, faceX: -sgn * tx, faceZ: -sgn * tz });
@@ -163,12 +183,21 @@ function addServiceBack(
 ): number {
   const half = innerHalf - SIDE_SHELF_T - 0.4; // deja hueco a las estanterías laterales
   if (half < 1.2) return backWallDep - WALK;
+  // El expositor no puede invadir la zona de entrada/caja (la trabajadora de
+  // caja queda a ~dep 3): en locales poco profundos se prescinde de la mesa de
+  // trabajo y el expositor se arrima al fondo; si ni así cabe, no hay puesto.
+  const minCounterDep = ENTRY_CLEAR + 1.4;
   const tableDep = backWallDep - TABLE_D / 2 - 0.05;
-  const counterDep = tableDep - TABLE_D / 2 - WORK_GAP - COUNTER_BACK_D / 2;
+  let counterDep = tableDep - TABLE_D / 2 - WORK_GAP - COUNTER_BACK_D / 2;
+  const conMesa = counterDep >= minCounterDep;
+  if (!conMesa) counterDep = backWallDep - COUNTER_BACK_D / 2 - 0.15;
+  if (counterDep < minCounterDep) return backWallDep - WALK;
 
-  const tp = toWorld(0, tableDep);
-  const tSz = sizeOf(half * 2, TABLE_D);
-  furniture.push({ kind: 'fishTable', x: tp.x, z: tp.z, w: tSz.w, d: tSz.d, faceX, faceZ });
+  if (conMesa) {
+    const tp = toWorld(0, tableDep);
+    const tSz = sizeOf(half * 2, TABLE_D);
+    furniture.push({ kind: 'fishTable', x: tp.x, z: tp.z, w: tSz.w, d: tSz.d, faceX, faceZ });
+  }
 
   const cp = toWorld(0, counterDep);
   const cSz = sizeOf(half * 2, COUNTER_BACK_D);

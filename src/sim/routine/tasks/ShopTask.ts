@@ -7,12 +7,13 @@
  * ≈ importancia de trabajar. El evento `nevera-vacia` (una comida que fracasa)
  * le añade además un estímulo fuerte.
  */
+import { simHours } from '../../../core/time';
 import type { Pedestrian } from '../../agents';
 import type { TaskCtx, TaskDef, TaskProgress } from '../TaskDef';
 import type { RoutineEvent, RoutineTask } from '../TaskTypes';
 
-/** Segundos de sim comprando dentro del súper (≈ media hora con DAY_LENGTH=300). */
-const SHOP_TIME = 6;
+/** Tiempo comprando dentro del súper (≈ media hora de sim). */
+const SHOP_TIME = simHours(0.5);
 
 /** Horario comercial del supermercado. */
 export const SHOP_WINDOW = { start: 8.5, end: 20.5 };

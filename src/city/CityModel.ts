@@ -147,11 +147,29 @@ export function sampleCurve(c: EdgeCurve, s: number, outP: Vec2, outT: Vec2): vo
 export type { BuildingType, ShopKind };
 export type { Furniture, FurnitureKind, HouseInterior, InteriorWall, MarketInterior, OfficeInterior, RoomKind, RoomRect, StairCore } from './buildings/interior/types';
 
+/** Horario de apertura de un comercio, en horas [0, 24). */
+export interface OpeningHours {
+  open: number;
+  close: number;
+}
+
+/** Horario por defecto de las tiendas: 8:00–21:30. */
+export const DEFAULT_SHOP_HOURS: OpeningHours = { open: 8, close: 21.5 };
+
+/** ¿Está abierto a la hora `hour`? Soporta horarios que cruzan medianoche. */
+export function isOpenAt(hours: OpeningHours, hour: number): boolean {
+  return hours.open <= hours.close
+    ? hour >= hours.open && hour < hours.close
+    : hour >= hours.open || hour < hours.close;
+}
+
 export interface Building {
   id: number;
   type: BuildingType;
   /** Solo tiendas (`type: 'shop'`): subtipo concreto (genérica, supermercado…). */
   shopKind?: ShopKind;
+  /** Solo tiendas: horario de apertura (las luces siguen este horario). */
+  hours?: OpeningHours;
   name: string;
   /** Centro de la huella. */
   x: number;

@@ -4,13 +4,14 @@
  * pasa al día siguiente con más prioridad (boost), hasta que gana la subasta.
  * No hay lavadora como mueble aún, así que se hace junto a la encimera/lavabo.
  */
+import { simHours } from '../../../core/time';
 import type { Pedestrian } from '../../agents';
 import { hash01, type RoutineTask, type TaskWindow } from '../TaskTypes';
 import { clockUrgency, type TaskCtx, type TaskDef, type TaskProgress } from '../TaskDef';
 import { stepHomeAction } from './homeAction';
 
-/** Segundos de sim atareado con la colada (≈ 20 min de sim). */
-const LAUNDRY_TIME = 4;
+/** Tiempo atareado con la colada (≈ 20 min de sim). */
+const LAUNDRY_TIME = simHours(0.33);
 
 export const LaundryTask: TaskDef = {
   kind: 'lavadora',

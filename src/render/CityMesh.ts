@@ -28,6 +28,7 @@ import { treeRenderers } from './vegetation/treeRenderRegistry';
 import type { PlayRenderBuckets, PlayRenderCtx, PlayRenderHelpers, RenderPlayItem } from './park/PlayRenderer';
 import { playRenderers } from './park/playRenderRegistry';
 import { buildFloorLamps, type FloorLampController, type LampShade, type LampShadeGeo } from './FloorLamps';
+import { ShopLights, type ShopLampRange } from './ShopLights';
 
 const BUILDING_PALETTES: Record<string, number[]> = {
   house: [0xe8c8a9, 0xd9a38b, 0xc9d4b0, 0xe6d9b8, 0xd4b8c4, 0xbfd0d9],
@@ -84,9 +85,8 @@ export interface CityBuild {
   lampMaterial: THREE.MeshBasicMaterial;
   /** Material de los conos de luz de las farolas (opacidad animada de noche). */
   lampConeMaterial: THREE.MeshBasicMaterial;
-  /** Material compartido de las bombillas colgantes del supermercado (encendidas
-   *  de día, apagadas de noche: al revés que las farolas; sin cono de luz). */
-  marketLampMaterial: THREE.MeshBasicMaterial;
+  /** Enciende/apaga las bombillas de cada tienda según su horario de apertura. */
+  shopLights: ShopLights;
 }
 
 export interface DoorPose {
@@ -527,8 +527,10 @@ export function buildCityMesh(model: CityModel): CityBuild {
   // Bombillas colgantes del supermercado: material PROPIO (no el de las farolas),
   // porque se comportan al revés (encendidas de día, apagadas de noche). Creado
   // ANTES de `addBuildings` para poder pasárselo.
-  const marketLampMaterial = new THREE.MeshBasicMaterial({ color: 0x35383d });
-  const { doors, marketDoors, floorLamps } = addBuildings(layers.buildings, layers.roofs, model, windowMaterial, marketLampMaterial);
+  // Blanco neutro: el color efectivo de cada bombilla lo pone `ShopLights` por
+  // instancia (encendida/apagada según el horario de su tienda).
+  const marketLampMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const { doors, marketDoors, floorLamps, shopLights } = addBuildings(layers.buildings, layers.roofs, model, windowMaterial, marketLampMaterial);
   addBillboard(layers.buildings, model);
 
   /* ── Farolas: una a mitad de cada tramo de calle, en ambos lados ── */
@@ -646,7 +648,7 @@ export function buildCityMesh(model: CityModel): CityBuild {
   addParkBenches(layers.trees, buildMergedBlockBenches(model));
   addPlayItems(layers.trees, model);
 
-  return { group, layers, doors, marketDoors, floorLamps, windowMaterial, lampMaterial, lampConeMaterial, marketLampMaterial };
+  return { group, layers, doors, marketDoors, floorLamps, windowMaterial, lampMaterial, lampConeMaterial, shopLights };
 }
 
 function addBillboard(group: THREE.Group, model: CityModel, textureUrl = BILLBOARD_TEXTURE_URL): void {
@@ -1420,7 +1422,7 @@ function addBuildings(
   model: CityModel,
   windowMaterial: THREE.MeshStandardMaterial,
   marketLampMaterial: THREE.MeshBasicMaterial,
-): { doors: DoorAnimator; marketDoors: SlidingDoorAnimator; floorLamps: FloorLampController } {
+): { doors: DoorAnimator; marketDoors: SlidingDoorAnimator; floorLamps: FloorLampController; shopLights: ShopLights } {
   const bodyMats: THREE.Matrix4[] = [];
   const bodyColors: THREE.Color[] = [];
   const hipRoofMats: THREE.Matrix4[] = [];
@@ -1440,6 +1442,7 @@ function addBuildings(
   const marketDoorLeafMats: THREE.Matrix4[] = []; // hojas correderas (estado inicial cerrado)
   const marketDoorPoses: SlidingDoorPose[] = []; // una por supermercado, para animarlas
   const marketLampMats: THREE.Matrix4[] = []; // bombillas colgantes (material propio: marketLampMaterial)
+  const shopLampRanges: ShopLampRange[] = []; // tramo de bombillas de cada tienda (encendido por horario)
   const stainedGlassMats: THREE.Matrix4[] = []; // vidrieras laterales de colores
   const stainedGlassColors: THREE.Color[] = [];
   const checkoutMats: THREE.Matrix4[] = [];
@@ -1561,7 +1564,13 @@ function addBuildings(
     };
 
     // Geometría propia del tipo (cuerpo, tejado, ventanas, detalles característicos).
+    // Se anota el tramo de bombillas colgantes que aporta este edificio, para que
+    // `ShopLights` las encienda/apague según su estado de apertura.
+    const lampStart = marketLampMats.length;
     buildingRenderers[b.type].render(b, variant, geom, ctx);
+    if (b.hours && marketLampMats.length > lampStart) {
+      shopLampRanges.push({ start: lampStart, count: marketLampMats.length - lampStart, building: b });
+    }
 
     // Variedad de interior por edificio: un tono de suelo (que comparten sus
     // escaleras) y un tono de tabique. Se rellenan los arrays de color hasta la
@@ -1693,10 +1702,13 @@ function addBuildings(
   group.add(marketDoorMesh);
   // Vidrieras laterales del supermercado: cristal de colores (color por instancia).
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 }), stainedGlassMats, { colors: stainedGlassColors }));
-  // Bombillas colgantes del techo del supermercado: material PROPIO (compartido,
-  // no clonado): `DayNightCycle` las enciende de DÍA y las apaga de noche, al
-  // revés que las farolas. Sin cono de luz (solo la bombilla).
-  group.add(instanced(new THREE.SphereGeometry(0.5, 10, 8), marketLampMaterial, marketLampMats));
+  // Bombillas colgantes de los comercios (súper y tiendas de gremio): material
+  // blanco neutro; el color efectivo lo escribe `ShopLights` POR INSTANCIA según
+  // el horario de cada tienda (encendida abierta, apagada cerrada). Sin cono de
+  // luz (solo la bombilla).
+  const marketLampMesh = instanced(new THREE.SphereGeometry(0.5, 10, 8), marketLampMaterial, marketLampMats);
+  group.add(marketLampMesh);
+  const shopLights = new ShopLights(marketLampMesh, shopLampRanges);
   // Interior del supermercado: mostradores de caja y cinta transportadora.
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0xd8d8d2 }), checkoutMats, { castShadow: true, receiveShadow: true }));
   group.add(instanced(unitBox, new THREE.MeshLambertMaterial({ color: 0x2e3033 }), conveyorMats, { castShadow: true }));
@@ -1725,6 +1737,7 @@ function addBuildings(
     doors: new DoorAnimator(doorMesh, doorPoses),
     marketDoors: new SlidingDoorAnimator(marketDoorMesh, marketDoorPoses),
     floorLamps,
+    shopLights,
   };
 }
 

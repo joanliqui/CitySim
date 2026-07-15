@@ -1,17 +1,27 @@
 import * as THREE from 'three';
+import type { Building } from '../city/CityModel';
 import type { Pedestrian } from '../sim/agents';
 
-export type PickResult = { kind: 'vehicle' | 'pedestrian'; index: number } | null;
+export type PickResult =
+  | { kind: 'vehicle' | 'pedestrian'; index: number }
+  /** `index` = posición del edificio en `model.buildings`. */
+  | { kind: 'building'; index: number }
+  | null;
 
 /**
- * Selección de agentes con clic: raycast sobre las mallas instanciadas.
- * Distingue clic de arrastre (órbita) por el desplazamiento del puntero.
+ * Selección con clic: raycast sobre las mallas instanciadas de agentes y, si no
+ * hay agente, contra las cajas (datos del modelo) de las TIENDAS — los agentes
+ * tienen prioridad. Distingue clic de arrastre (órbita) por el desplazamiento
+ * del puntero.
  */
 export class Picking {
   private static readonly PED_SCREEN_RADIUS = 22;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly tmp = new THREE.Vector3();
+  private readonly box = new THREE.Box3();
+  /** Tiendas seleccionables, con su índice original en `model.buildings`. */
+  private readonly shops: { b: Building; index: number }[];
   private downX = 0;
   private downY = 0;
 
@@ -23,8 +33,12 @@ export class Picking {
     /** Raíz de los personajes personalizados (sus grupos llevan userData.pedIndex). */
     private readonly customRoot: THREE.Object3D,
     private readonly pedestrians: Pedestrian[],
+    /** Capa de edificios (si el panel de construcción la oculta, no se pican). */
+    private readonly buildingsRoot: THREE.Object3D,
+    buildings: Building[],
     private readonly onPick: (result: PickResult) => void,
   ) {
+    this.shops = buildings.map((b, index) => ({ b, index })).filter(({ b }) => b.type === 'shop');
     this.domElement.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       this.downX = e.clientX;
@@ -60,7 +74,7 @@ export class Picking {
         if (o.userData.pedIndex !== undefined) return { kind: 'pedestrian', index: o.userData.pedIndex };
       }
     }
-    return this.pickNearestPedestrian(clientX, clientY);
+    return this.pickNearestPedestrian(clientX, clientY) ?? this.pickShop();
   }
 
   private pickNearestPedestrian(clientX: number, clientY: number): PickResult {
@@ -85,6 +99,29 @@ export class Picking {
       }
     }
     return best >= 0 ? { kind: 'pedestrian', index: best } : null;
+  }
+
+  /**
+   * Tienda bajo el rayo del clic: intersección rayo↔caja del edificio (datos
+   * puros del modelo; los `InstancedMesh` de edificios no mapean instancia →
+   * edificio). Devuelve la más cercana a la cámara.
+   */
+  private pickShop(): PickResult {
+    if (!isVisibleInTree(this.buildingsRoot)) return null;
+    let best = -1;
+    let bestD = Infinity;
+    for (const { b, index } of this.shops) {
+      this.box.min.set(b.x - b.w / 2, 0, b.z - b.d / 2);
+      this.box.max.set(b.x + b.w / 2, b.h, b.z + b.d / 2);
+      if (this.raycaster.ray.intersectBox(this.box, this.tmp)) {
+        const d = this.tmp.distanceTo(this.raycaster.ray.origin);
+        if (d < bestD) {
+          bestD = d;
+          best = index;
+        }
+      }
+    }
+    return best >= 0 ? { kind: 'building', index: best } : null;
   }
 }
 

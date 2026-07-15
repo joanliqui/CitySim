@@ -5,16 +5,17 @@
  * (Big Five) más un jitter determinista por id, así cada peatón se acuesta a una
  * hora distinta y duerme un rato distinto.
  *
- * Referencia temporal: un día completo dura `DAY_LENGTH` = 300 s (1 h ≈ 12.5 s).
+ * Referencia temporal: `DAY_LENGTH` (fuente única en `src/core/time.ts`).
  */
+import { simHours } from '../core/time';
 import type { Personality } from './personality';
 
-/** Energía/seg gastada despierto: vaciar 100 ≈ 200 s ≈ 16 h de simulación, así un
+/** Energía/seg gastada despierto: vaciar 100 ≈ 16 h de simulación, así un
  *  peatón se cansa a lo largo de un solo día y se acuesta esa misma noche. */
-const DRAIN_BASE = 0.5;
-/** Energía/seg recuperada durmiendo: recargar 100 ≈ 100 s ≈ 8 h. Debe compensar el
+const DRAIN_BASE = 100 / simHours(16);
+/** Energía/seg recuperada durmiendo: recargar 100 ≈ 8 h. Debe compensar el
  *  gasto del día completo para que no se acumule un déficit noche tras noche. */
-const RECOVER_BASE = 1.0;
+const RECOVER_BASE = 100 / simHours(8);
 
 /** Segundos que tarda en tumbarse/levantarse (anima `recline`). */
 export const RECLINE_TIME = 0.6;

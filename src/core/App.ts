@@ -1,9 +1,12 @@
 import { generateCity } from '../city/CityGenerator';
-import { apartmentCount, type Furniture } from '../city/CityModel';
+import { apartmentCount, DEFAULT_SHOP_HOURS, isOpenAt, type Building, type Furniture } from '../city/CityModel';
+import { MARKET_SECTION_CATALOG } from '../city/buildings/interior/marketSections';
+import { SPECIALTY_SHOPS, type SpecialtyShopKind } from '../city/buildings/shops/specialtyShops';
 import type * as THREE from 'three';
 import { CameraRig } from '../render/CameraRig';
 import { buildCityMesh, type DoorAnimator, type SlidingDoorAnimator } from '../render/CityMesh';
 import type { FloorLampController } from '../render/FloorLamps';
+import type { ShopLights } from '../render/ShopLights';
 import { DayNightCycle } from '../render/DayNightCycle';
 import { Sky } from '../render/Sky';
 import { PedestrianMesh } from '../render/PedestrianMesh';
@@ -110,6 +113,7 @@ export class App {
   private readonly doors: DoorAnimator;
   private readonly marketDoors: SlidingDoorAnimator;
   private readonly floorLamps: FloorLampController;
+  private readonly shopLights: ShopLights;
   private readonly buildObjects: Record<string, THREE.Object3D[]>;
   private readonly billboard: THREE.Object3D | null;
 
@@ -129,6 +133,7 @@ export class App {
     this.doors = city.doors;
     this.marketDoors = city.marketDoors;
     this.floorLamps = city.floorLamps;
+    this.shopLights = city.shopLights;
     this.renderer.scene.add(city.group);
     this.billboard = city.group.getObjectByName('billboard') ?? null;
 
@@ -145,7 +150,6 @@ export class App {
       windowMaterial: city.windowMaterial,
       lampMaterial: city.lampMaterial,
       lampConeMaterial: city.lampConeMaterial,
-      marketLampMaterial: city.marketLampMaterial,
       bloom: this.renderer.bloom,
       lightDistance: this.renderer.lightDistance,
     });
@@ -201,6 +205,11 @@ export class App {
           this.focusBuilding(p.home);
         }
       },
+      // Enlace de la ficha (p. ej. el trabajador de una tienda): selecciona y
+      // sigue al peatón exactamente igual que al pulsarlo en la escena.
+      onSelectPedestrian: (index) => {
+        if (this.sim.pedestrianSystem.pedestrians[index]) this.select({ kind: 'pedestrian', index });
+      },
     });
 
     // Creador de personajes: al confirmar, el peatón nace en la simulación
@@ -228,6 +237,8 @@ export class App {
       this.pedestrianMesh.pickMesh,
       this.customPedMesh.group,
       this.sim.pedestrianSystem.pedestrians,
+      city.layers.buildings,
+      model.buildings,
       (result) => this.select(result),
     );
 
@@ -316,6 +327,13 @@ export class App {
       this.hud.showAgent(null);
       return;
     }
+    // Tienda: solo ficha informativa (sin seguimiento de cámara ni silueta).
+    if (result.kind === 'building') {
+      this.ghost.setTarget(null);
+      this.rig.follow(null);
+      this.hud.showAgent(this.agentInfo());
+      return;
+    }
     // Al peatón seguido se le ve a través de la geometría (silueta punteada de
     // GhostPedestrian), así que la cámara le sigue también dentro de los edificios.
     if (result.kind === 'pedestrian') {
@@ -372,6 +390,11 @@ export class App {
 
   private agentInfo(): AgentInfo | null {
     if (!this.selected) return null;
+    if (this.selected.kind === 'building') {
+      const b = this.sim.model.buildings[this.selected.index];
+      const open = this.sim.pedestrianSystem.shopOpen(b, this.dayNight.hour);
+      return shopInfo(b, this.dayNight.hour, this.sim.pedestrianSystem.pedestrians, open);
+    }
     if (this.selected.kind === 'vehicle') {
       const v: Vehicle = this.sim.vehicleSystem.vehicles[this.selected.index];
       const status =
@@ -412,7 +435,11 @@ export class App {
       title: `Peatón #${p.id + 1}`,
       status,
       detail,
-      details: [taskDetail(p), ...homeDetails(p)],
+      details: [
+        taskDetail(p),
+        ...(p.workplace ? [{ label: 'Trabajo', value: p.workplace.name }] : []),
+        ...homeDetails(p),
+      ],
       routine: routineInfo(p, this.sim.pedestrianSystem.routineCtx(this.dayNight.hour)),
       stats: BIG_FIVE.map((t) => ({ label: t.label, value: p.personality[t.id] })),
       // "Comer" solo si está despierto (dormido no puede ir a comer).
@@ -423,7 +450,7 @@ export class App {
     };
   }
 
-  /** Ejecuta una acción contextual sobre el peatón seleccionado. */
+  /** Ejecuta una acción contextual sobre el peatón seleccionado (las tiendas no tienen). */
   private runAgentAction(id: string): void {
     if (!this.selected || this.selected.kind !== 'pedestrian') return;
     if (id === 'go-home') this.sim.pedestrianSystem.goHome(this.selected.index);
@@ -479,6 +506,9 @@ export class App {
       this.marketDoors.update(realDt);
       this.lightMesh.update(this.clock.time);
       this.dayNight.update(this.clock.time);
+      // Luces de los comercios: encendidas solo con la tienda ABIERTA de verdad
+      // (en horario y con su trabajador en el puesto).
+      this.shopLights.update((b) => this.sim.pedestrianSystem.shopOpen(b, this.dayNight.hour));
       // Refrescar el reflejo del cielo de vez en cuando (el cielo cambia despacio).
       this.envTimer -= realDt;
       if (this.envTimer <= 0) {
@@ -556,6 +586,65 @@ function routineInfo(p: Pedestrian, ctx: TaskCtx): RoutineTaskInfo[] {
   });
   items.sort((a, b) => a.ord - b.ord || (b.info.score ?? -1) - (a.info.score ?? -1));
   return items.map((it) => it.info);
+}
+
+/** Icono de ficha por gremio de tienda. */
+const SHOP_ICONS: Record<string, string> = {
+  fruteria: '🍏',
+  carniceria: '🥩',
+  pescaderia: '🐟',
+  ropa: '👕',
+  farmacia: '💊',
+  electronica: '📺',
+  libreria: '📚',
+  supermarket: '🛒',
+  generic: '🏪',
+};
+
+/**
+ * Ficha de una tienda para el panel del HUD (espejo de la de los peatones).
+ * `open` viene de la SIM (`shopOpen`): en horario Y con el trabajador en su
+ * puesto — a la hora de abrir, si el dependiente aún está de camino, la tienda
+ * sigue "Cerrada · esperando al trabajador". Se refresca con el mismo
+ * temporizador que la ficha de agentes, así el estado cambia en vivo.
+ */
+function shopInfo(b: Building, hour: number, pedestrians: Pedestrian[], open: boolean): AgentInfo {
+  const hours = b.hours ?? DEFAULT_SHOP_HOURS;
+  const enHorario = isOpenAt(hours, hour);
+  const horario = `${hourText(hours.open)}–${hourText(hours.close)}`;
+  let inside = 0;
+  for (const p of pedestrians) if (p.state === 'inside' && p.building.id === b.id) inside++;
+  const worker = pedestrians.find((p) => p.workplace === b) ?? null;
+
+  const kind = b.shopKind ?? 'generic';
+  const tipo =
+    kind === 'supermarket' ? 'Supermercado' : kind === 'generic' ? 'Tienda' : SPECIALTY_SHOPS[kind as SpecialtyShopKind].label;
+  // Secciones únicas del interior, con su etiqueta legible.
+  const secciones = [...new Set((b.marketInterior?.furniture ?? []).flatMap((f) => f.sections ?? []))].map(
+    (s) => MARKET_SECTION_CATALOG[s].label,
+  );
+
+  const status = open
+    ? `Abierto · cierra a las ${hourText(hours.close)}`
+    : enHorario && worker
+      ? 'Cerrado · esperando al trabajador'
+      : `Cerrado · abre a las ${hourText(hours.open)}`;
+  return {
+    icon: SHOP_ICONS[kind] ?? '🏪',
+    title: b.name,
+    status,
+    detail: `Horario: ${horario}${inside > 0 ? ` · ${inside} ${inside === 1 ? 'persona' : 'personas'} dentro` : ''}`,
+    details: [
+      { label: 'Tipo', value: tipo },
+      { label: 'Horario', value: horario },
+      { label: 'Estado', value: open ? 'Abierto' : 'Cerrado' },
+      // Enlace: pulsar el trabajador lo selecciona y lo sigue (el id coincide
+      // con el índice del array: se asignan secuencialmente y nunca se reordena).
+      worker ? { label: 'Trabajador', value: `Peatón #${worker.id + 1}`, selectPed: worker.id } : { label: 'Trabajador', value: '—' },
+      { label: 'Gente dentro', value: String(inside) },
+      ...(secciones.length ? [{ label: 'Secciones', value: secciones.join(', ') }] : []),
+    ],
+  };
 }
 
 /** "13.5" → "13:30". */

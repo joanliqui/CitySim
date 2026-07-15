@@ -10,12 +10,9 @@
  * estructura ya permite, p. ej., que el hambre caiga más rápido por debajo del
  * 30 %: basta con añadir tramos a su `NeedConfig`, sin tocar la lógica de drenaje.
  *
- * Referencia temporal: un día completo dura `DAY_LENGTH` = 300 s (igual que en
- * `sleep.ts` / `DayNightCycle`).
+ * Referencia temporal: `DAY_LENGTH` (fuente única en `src/core/time.ts`).
  */
-
-/** Duración de un día de simulación en segundos (debe coincidir con `DayNightCycle`). */
-const DAY_LENGTH = 300;
+import { DAY_LENGTH } from '../core/time';
 
 /**
  * Un tramo del descenso. Mientras el porcentaje actual es ≤ `upTo` (y mayor que

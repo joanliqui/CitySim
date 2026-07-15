@@ -6,13 +6,14 @@
  * componente dinámica puede superar el umbral flexible, compite incluso fuera
  * de su ventana horaria.
  */
+import { simHours } from '../../../core/time';
 import type { Pedestrian } from '../../agents';
 import { hash01, type RoutineEvent, type RoutineTask, type TaskWindow } from '../TaskTypes';
 import type { TaskCtx, TaskDef, TaskProgress } from '../TaskDef';
 import { stepHomeAction } from './homeAction';
 
-/** Segundos de sim bajo la ducha (≈ 12 min con DAY_LENGTH = 300 s). */
-const WASH_TIME = 2.5;
+/** Tiempo bajo la ducha (≈ 12 min de sim). */
+const WASH_TIME = simHours(0.2);
 
 export const ShowerTask: TaskDef = {
   kind: 'ducharse',

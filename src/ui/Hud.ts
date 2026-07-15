@@ -17,6 +17,8 @@ export interface AgentDetail {
   value: string;
   /** Si true, el valor se renderiza como enlace y llama a onFocusHome al pulsar. */
   focusHome?: boolean;
+  /** Índice de peatón: el valor se renderiza como enlace que lo selecciona y sigue. */
+  selectPed?: number;
 }
 
 /** Una tarea de la rutina del peatón, ya formateada para el panel. */
@@ -74,6 +76,8 @@ export interface HudCallbacks {
   onAgentAction: (id: string) => void;
   /** Sitúa la cámara mirando al edificio del hogar del peatón seleccionado. */
   onFocusHome: () => void;
+  /** Selecciona (y sigue con la cámara) al peatón `index`, como al pulsarlo en la escena. */
+  onSelectPedestrian: (index: number) => void;
 }
 
 /** Panel de control (DOM plano): pausa, velocidad, ajustes, estadísticas y ficha del agente. */
@@ -135,7 +139,7 @@ export class Hud {
           </div>
           <div class="setting-row">
             <label>Día dura</label>
-            <input class="day-length" type="range" min="60" max="600" step="30" />
+            <input class="day-length" type="range" min="60" max="2400" step="60" />
             <span class="day-length-label"></span>
           </div>
           <div class="settings-divider">Nueva ciudad</div>
@@ -214,8 +218,13 @@ export class Hud {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.agent-action');
       if (btn) callbacks.onAgentAction(btn.dataset.action!);
     });
-    // Delegación: enlace al edificio del hogar.
+    // Delegación: enlaces de la ficha (peatón enlazado y edificio del hogar).
     this.agentStats.addEventListener('click', (e) => {
+      const pedLink = (e.target as HTMLElement).closest<HTMLButtonElement>('.agent-ped-link');
+      if (pedLink) {
+        callbacks.onSelectPedestrian(parseInt(pedLink.dataset.ped!, 10));
+        return;
+      }
       if ((e.target as HTMLElement).closest('.agent-home-link')) callbacks.onFocusHome();
     });
     root.querySelector('.create-character')!.addEventListener('click', () => callbacks.onCreateCharacter());
@@ -309,11 +318,15 @@ export class Hud {
     if (hasInfo) {
       this.statsToggle.classList.remove('hidden');
       const rows = (info.details ?? [])
-        .map((d) =>
-          d.focusHome
+        .map((d) => {
+          if (d.selectPed !== undefined) {
+            // Mismo estilo que el enlace del hogar, con el índice del peatón a bordo.
+            return `<div class="agent-info-row"><span>${d.label}</span><button class="agent-home-link agent-ped-link" data-ped="${d.selectPed}">${d.value}</button></div>`;
+          }
+          return d.focusHome
             ? `<div class="agent-info-row"><span>${d.label}</span><button class="agent-home-link">${d.value}</button></div>`
-            : `<div class="agent-info-row"><span>${d.label}</span><span>${d.value}</span></div>`,
-        )
+            : `<div class="agent-info-row"><span>${d.label}</span><span>${d.value}</span></div>`;
+        })
         .join('');
       const bars = (info.stats ?? [])
         .map(

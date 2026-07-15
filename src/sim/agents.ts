@@ -81,6 +81,10 @@ export interface Pedestrian {
   home: Building;
   /** Apartamento dentro del edificio (planta 1..N). 0 = casa individual. */
   homeUnit: number;
+  /** Tienda en la que trabaja (tras el mostrador, en su horario). Sin campo = no trabaja. */
+  workplace?: Building;
+  /** Puesto dentro de la tienda: índice de SU caja registradora (0..N-1). */
+  workSlot?: number;
   /** Edificio destino (o en el que está dentro). */
   building: Building;
   /** Cuenta atrás dentro del edificio. */

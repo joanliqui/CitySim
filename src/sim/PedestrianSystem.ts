@@ -1,4 +1,4 @@
-import { apartmentCount, lerpAngle, type Building, type CityModel, type Furniture } from '../city/CityModel';
+import { apartmentCount, isOpenAt, lerpAngle, type Building, type CityModel, type Furniture } from '../city/CityModel';
 import { buildingFactories } from '../city/buildings/registry';
 import {
   floorSurfaceY,
@@ -10,6 +10,7 @@ import {
 import { interiorWalkPath } from '../city/buildings/interior/interiorNav';
 import type { PathStep, SidewalkGraph } from '../city/SidewalkGraph';
 import { Rng } from '../core/Rng';
+import { simHours } from '../core/time';
 import type { Leg, Pedestrian } from './agents';
 import { FOOD_CATALOG, FOOD_KINDS } from '../city/food/FoodTypes';
 import { addFood, freeSpace, usedSpace, type FridgeStore } from '../city/food/Fridge';
@@ -52,8 +53,8 @@ interface HomeAssignment {
 const EAT_THRESHOLD = 60;
 /** Segundos para acercarse a la nevera / volver al sitio (anima `eatApproach`). */
 const EAT_MOVE_TIME = 0.8;
-/** Segundos que dura el acto de comer una vez frente a la nevera. */
-const EAT_TIME = 2.5;
+/** Duración del acto de comer una vez frente a la nevera (≈ 12 min de sim). */
+const EAT_TIME = simHours(0.2);
 
 const CROSS_SPEED = 2.4; // los peatones cruzan con prisa
 const CORNER_BLEND = 2.2; // metros suavizados alrededor de cada giro
@@ -79,6 +80,8 @@ export class PedestrianSystem implements RoutineHost {
   private readonly taken = new Set<string>();
   /** Supermercados de la ciudad (destinos de la tarea "hacer la compra"). */
   private readonly markets: Building[];
+  /** Plantilla de cada tienda (un trabajador por caja registradora). */
+  private readonly workersOf = new Map<Building, Pedestrian[]>();
   /** Día de sim (avanza al detectar el wrap de la hora) y última hora vista. */
   private day = 0;
   private lastHour: number | null = null;
@@ -96,6 +99,16 @@ export class PedestrianSystem implements RoutineHost {
     this.buildInventory();
     // Reparto único de viviendas por clase social (precalculado antes del bucle).
     const plan = this.assignHomes(count);
+    // Puestos de trabajo: cada tienda emplea tantos peatones como CAJAS
+    // registradoras tiene su interior (mínimo 1) — en el súper, un trabajador
+    // por caja. El reparto es secuencial (los primeros peatones se llevan los
+    // puestos) y el resto, de momento, no trabaja.
+    const jobs: { shop: Building; slot: number }[] = [];
+    for (const b of model.buildings) {
+      if (b.type !== 'shop') continue;
+      const cajas = b.marketInterior?.furniture.filter((f) => f.kind === 'checkout').length ?? 0;
+      for (let slot = 0; slot < Math.max(1, cajas); slot++) jobs.push({ shop: b, slot });
+    }
     for (let id = 0; id < count; id++) {
       const { home, homeUnit, socialClass } = plan[id];
       // Empiezan en casa: el hogar es también su primer edificio actual.
@@ -115,8 +128,11 @@ export class PedestrianSystem implements RoutineHost {
         socialClass,
         home,
         homeUnit,
+        workplace: jobs[id]?.shop,
+        workSlot: jobs[id]?.slot,
         building,
-        timer: this.rng.range(0.5, 18),
+        // Estancia inicial en casa (hasta ~1.4 h de sim, escalonada).
+        timer: this.rng.range(simHours(0.05), simHours(1.4)),
         energy: this.rng.range(70, 100),
         food: this.rng.range(60, 100),
         hydration: this.rng.range(60, 100),
@@ -144,8 +160,37 @@ export class PedestrianSystem implements RoutineHost {
         prevScale: 1,
       };
       this.pedestrians.push(ped);
+      if (ped.workplace) {
+        const staff = this.workersOf.get(ped.workplace) ?? [];
+        staff.push(ped);
+        this.workersOf.set(ped.workplace, staff);
+      }
       planDay(ped.routine, ped, this.day, this);
     }
+  }
+
+  /** Plantilla de una tienda, en orden de caja (slot 0..N-1). */
+  workersAt(b: Building): readonly Pedestrian[] {
+    return this.workersOf.get(b) ?? [];
+  }
+
+  /** ¿Está el peatón en su puesto (fase `trabajando` de su tarea)? */
+  isAtPost(ped: Pedestrian): boolean {
+    const act = ped.routine.active;
+    return act?.kind === 'trabajar' && (act.data as { phase?: string }).phase === 'trabajando';
+  }
+
+  /**
+   * ¿Está la tienda ABIERTA? No basta con el horario: hasta que ALGUIEN de la
+   * plantilla no está en su puesto, la tienda sigue cerrada (con varios
+   * trabajadores basta uno; el resto de cajas van abriendo al llegar cada uno).
+   * Las tiendas sin plantilla (si las hubiera) siguen solo el horario.
+   */
+  shopOpen(b: Building, hour: number): boolean {
+    if (!b.hours || !isOpenAt(b.hours, hour)) return false;
+    const staff = this.workersOf.get(b);
+    if (!staff || staff.length === 0) return true;
+    return staff.some((w) => this.isAtPost(w));
   }
 
   /**
@@ -373,6 +418,29 @@ export class PedestrianSystem implements RoutineHost {
 
   homeStand(ped: Pedestrian): { x: number; z: number; y: number } {
     return this.standTarget(ped.home, ped.homeUnit, true);
+  }
+
+  /**
+   * Puesto de trabajo: de pie DETRÁS del mostrador de caja de su tienda, en el
+   * lado de la CARA del mueble (la cara marca el lado de la trabajadora; el
+   * cliente queda en el opuesto — convención compartida con el súper, donde la
+   * cara mira a la fachada, y con las tiendas de gremio, donde mira al interior
+   * o a la pared en el mostrador rotado de los locales estrechos). Mira hacia
+   * el lado del cliente.
+   */
+  workSpot(ped: Pedestrian): FurniturePoint | null {
+    const b = ped.workplace;
+    const f = b?.marketInterior?.furniture.find((it) => it.kind === 'checkout');
+    if (!b || !f) return null;
+    // Extensión del mostrador en su eje de flujo (hacia la fachada).
+    const flow = Math.abs(f.faceX) > 0.5 ? f.w : f.d;
+    const off = flow / 2 + 0.45;
+    return {
+      x: f.x + f.faceX * off,
+      z: f.z + f.faceZ * off,
+      y: 0,
+      heading: Math.atan2(-f.faceX, -f.faceZ),
+    };
   }
 
   /**
@@ -694,11 +762,12 @@ export class PedestrianSystem implements RoutineHost {
 
       // Quien va por la calle hacia un destino que no es su casa se redirige a
       // casa si es de noche (a dormir) o si tiene hambre estando despierto (a
-      // comer) — salvo que esté haciendo la compra: esa tarea YA arregla el
-      // hambre. Los que ya están dentro lo deciden en stepInside.
-      const comprando = ped.routine.active?.kind === 'comprar';
+      // comer) — salvo que esté haciendo la compra (esa tarea YA arregla el
+      // hambre) o yendo a trabajar (el turno no se abandona por hambre normal;
+      // comerá al salir). Los que ya están dentro lo deciden en stepInside.
+      const enFaena = ped.routine.active?.kind === 'comprar' || ped.routine.active?.kind === 'trabajar';
       const wantsHome =
-        isNight(hour) || (!ped.sleeping && ((ped.food < EAT_THRESHOLD && !comprando) || ped.wantsToEat));
+        isNight(hour) || (!ped.sleeping && ((ped.food < EAT_THRESHOLD && !enFaena) || ped.wantsToEat));
       if (wantsHome && ped.state === 'walking' && ped.building !== ped.home) {
         this.walkHome(ped);
       }
@@ -817,10 +886,11 @@ export class PedestrianSystem implements RoutineHost {
 
     // Hambre (estando despierto) o comer ordenado por el usuario (`wantsToEat`):
     // va a su nevera a comer. Si está en casa y hay comida, empieza a comer; si
-    // está fuera, vuelve a casa primero. Excepción: si está haciendo la compra,
-    // el hambre no lo desvía (la compra es justo lo que arregla el problema).
-    const comprando = ped.routine.active?.kind === 'comprar';
-    if ((ped.food < EAT_THRESHOLD && !comprando) || ped.wantsToEat) {
+    // está fuera, vuelve a casa primero. Excepciones: haciendo la compra (la
+    // compra es justo lo que arregla el problema) y trabajando (el turno no se
+    // abandona por hambre normal; la orden del usuario sí lo saca).
+    const enFaena = ped.routine.active?.kind === 'comprar' || ped.routine.active?.kind === 'trabajar';
+    if ((ped.food < EAT_THRESHOLD && !enFaena) || ped.wantsToEat) {
       if (ped.building === ped.home) {
         if (this.startEating(ped)) {
           ped.wantsToEat = false;
@@ -1013,7 +1083,8 @@ export class PedestrianSystem implements RoutineHost {
       if (ped.legIdx + 1 >= ped.legs.length) {
         // Ha llegado a su punto interior: se queda dentro, de pie y visible.
         ped.state = 'inside';
-        ped.timer = this.rng.range(4, 16);
+        // Estancia de visita: entre ~20 min y ~1.3 h de sim.
+        ped.timer = this.rng.range(simHours(0.3), simHours(1.3));
         ped.s = leg.length;
         ped.x = leg.bx;
         ped.z = leg.bz;
